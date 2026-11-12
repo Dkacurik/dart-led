@@ -37,6 +37,10 @@ public final class ScreenParser {
         List<String> t = tokens(raw);
         Scoreboard sb = new Scoreboard();
 
+        for (String tok : t) {
+            if (plain(tok).contains("WHO THROWS FIRST")) return parseBullUp(t);
+        }
+
         List<Integer> avgIdx = new ArrayList<>();
         for (int i = 0; i < t.size(); i++) {
             if (isAvgLabel(t.get(i))) avgIdx.add(i);
@@ -240,6 +244,43 @@ public final class ScreenParser {
             if (DART_LABEL.matcher(s).matches()) sb.entered.add(p);
             if (sb.entered.size() == 3) break;
         }
+    }
+
+    private static final Pattern DISTANCE = Pattern.compile("^(\\d{1,3}(?:[.,]\\d{1,2})?)\\s*(MM)?$");
+
+    /**
+     * The bull-up screen: "WHO THROWS FIRST?", then per player the name and, once thrown,
+     * the distance ("38.5 MM" or "38.5", "MM"). "THROW YOUR DART" follows the player throwing now.
+     */
+    static Scoreboard parseBullUp(List<String> t) {
+        Scoreboard sb = new Scoreboard();
+        sb.bullUp = true;
+        for (int i = 0; i < t.size(); i++) {
+            String s = strip(t.get(i)).trim();
+            String p = plain(s);
+            java.util.regex.Matcher m = DISTANCE.matcher(p);
+            if (m.matches()) {
+                boolean mm = m.group(2) != null
+                        || (i + 1 < t.size() && plain(strip(t.get(i + 1))).startsWith("MM"));
+                int last = sb.bullNames.size() - 1;
+                if (mm && last >= 0 && sb.bullDist.get(last) == null) {
+                    sb.bullDist.set(last, Double.parseDouble(m.group(1).replace(',', '.')));
+                }
+            } else if (p.contains("THROW YOUR DART")) {
+                sb.bullActive = sb.bullNames.size() - 1;
+            } else if (isNameLike(s) && !isBullUpWord(p) && sb.bullNames.size() < 4
+                    && (sb.bullNames.isEmpty() || !sb.bullNames.get(sb.bullNames.size() - 1).equals(s))) {
+                sb.bullNames.add(s);
+                sb.bullDist.add(null);
+            }
+        }
+        return sb;
+    }
+
+    private static boolean isBullUpWord(String p) {
+        return p.contains("THROW") || p.contains("BULL") || p.equals("QUIT") || p.contains("START")
+                || p.contains("AGAIN") || p.contains("CONFIRM") || p.contains("MARK") || p.contains("FIRST")
+                || p.equals("MM") || p.contains("DARTS");
     }
 
     /** Points for one dart label: T20 = 60, D16 = 32, S5 = 5, BULL = 50, S25 = 25, MISS = 0. */

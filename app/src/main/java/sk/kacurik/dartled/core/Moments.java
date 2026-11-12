@@ -142,17 +142,42 @@ public final class Moments {
      */
     public static List<Step> forChange(Scoreboard before, Scoreboard now, int w, int h, Random rnd) {
         if (before == null || now == null) return null;
+        if (now.bullUp) {
+            // Everyone has thrown now (and not before): announce who throws first.
+            int best = closest(now);
+            if (best >= 0 && closest(before) < 0) return throwsFirst(now.bullNames.get(best), w, h);
+            return null;
+        }
         if (now.winner != null) {
-            return before.winner == null ? winner(now, w, h) : null;
+            if (before.winner != null) return null;
+            // The match-winning visit: was it a high finish?
+            List<Step> s = new ArrayList<>();
+            for (Scoreboard.Player a : before.players) {
+                if (a.active && ScreenParser.plain(a.name).equals(ScreenParser.plain(now.winner))
+                        && a.score >= 100 && a.score <= 170) {
+                    s.addAll(highFinish(a.score, w, h));
+                }
+            }
+            s.addAll(winner(now, w, h));
+            return s;
         }
-        if (before.players.size() != now.players.size() || now.players.isEmpty()) return null;
-        for (int i = 0; i < now.players.size(); i++) {
-            if (!before.players.get(i).name.equals(now.players.get(i).name)) return null; // new match
+        if (now.players.isEmpty()) return null;
+        if (isFreshStart(now) && (before.players.isEmpty() || before.bullUp || before.winner != null
+                || !sameNames(before, now))) {
+            return gameOn(now, w, h);
         }
+        if (before.players.size() != now.players.size() || !sameNames(before, now)) return null; // new match
         // A leg won beats everything else.
         for (int i = 0; i < now.players.size(); i++) {
             Scoreboard.Player a = before.players.get(i), b = now.players.get(i);
-            if (b.legs == a.legs + 1) return gameShot(b.name, w, h);
+            if (b.legs == a.legs + 1) {
+                if (a.score >= 100 && a.score <= 170) {
+                    List<Step> s = new ArrayList<>(highFinish(a.score, w, h));
+                    s.addAll(gameShot(b.name, w, h));
+                    return s;
+                }
+                return gameShot(b.name, w, h);
+            }
         }
         for (int i = 0; i < now.players.size(); i++) {
             Scoreboard.Player a = before.players.get(i), b = now.players.get(i);
@@ -219,6 +244,55 @@ public final class Moments {
             return d;
         }
         return null;
+    }
+
+    /** Which player threw a visit just now, and what it was worth: {player index, points}. */
+    public static int[] lastVisit(Scoreboard before, Scoreboard now) {
+        if (before == null || now == null || before.players.size() != now.players.size()
+                || now.players.isEmpty() || !sameNames(before, now)) return null;
+        for (int i = 0; i < now.players.size(); i++) {
+            Scoreboard.Player a = before.players.get(i), b = now.players.get(i);
+            if (b.legs != a.legs) return null;
+            if (now.cricket) {
+                if (b.score > a.score) return new int[]{i, b.score - a.score};
+                continue;
+            }
+            if (a.darts >= 0 && b.darts >= 0) {
+                if (b.darts > a.darts) return new int[]{i, b.lastScore >= 0 ? b.lastScore : a.score - b.score};
+            } else if (b.score < a.score) {
+                return new int[]{i, a.score - b.score};
+            }
+        }
+        return null;
+    }
+
+    static boolean sameNames(Scoreboard a, Scoreboard b) {
+        if (a.players.size() != b.players.size()) return false;
+        for (int i = 0; i < a.players.size(); i++) {
+            if (!a.players.get(i).name.equals(b.players.get(i).name)) return false;
+        }
+        return true;
+    }
+
+    /** A brand-new match: no legs won, everyone on the same score, nothing thrown yet. */
+    static boolean isFreshStart(Scoreboard sb) {
+        int score = sb.players.get(0).score;
+        for (Scoreboard.Player p : sb.players) {
+            if (p.legs != 0 || p.score != score || p.darts > 0) return false;
+        }
+        return true;
+    }
+
+    /** Index of the player closest to the bull once everyone has thrown, else -1. */
+    static int closest(Scoreboard sb) {
+        if (!sb.bullUp || sb.bullNames.isEmpty()) return -1;
+        int best = -1;
+        for (int i = 0; i < sb.bullDist.size(); i++) {
+            Double d = sb.bullDist.get(i);
+            if (d == null) return -1;
+            if (best < 0 || d < sb.bullDist.get(best)) best = i;
+        }
+        return best;
     }
 
     static boolean sameBed(List<String> d) {
@@ -290,6 +364,48 @@ public final class Moments {
             s.add(new Step(new Frame(w, h), 150));
         }
         s.add(new Step(lines(w, h, Renderer.shortName(name), WHITE, "NO SCORE", GOLD), 1500));
+        return s;
+    }
+
+    /** Checkout of 100 or more; 170 is the big fish. */
+    public static List<Step> highFinish(int checkout, int w, int h) {
+        List<Step> s = new ArrayList<>();
+        boolean fish = checkout == 170;
+        for (int i = 0; i < 4; i++) {
+            s.add(new Step(fish ? lines(w, h, "THE BIG", i % 2 == 0 ? GOLD : CYAN, "FISH!", i % 2 == 0 ? CYAN : GOLD)
+                                : lines(w, h, "HIGH", i % 2 == 0 ? GOLD : RED, "FINISH!", i % 2 == 0 ? RED : GOLD), 350));
+            s.add(new Step(new Frame(w, h), 120));
+        }
+        int[] colors = {GOLD, RED, GREEN, CYAN};
+        for (int i = 0; i < 4; i++) s.add(new Step(big(w, h, checkout + "!", colors[i]), 300));
+        s.add(new Step(big(w, h, checkout + "!", GOLD), 1200));
+        return s;
+    }
+
+    /** New match: GAME ON!, then who throws first. */
+    public static List<Step> gameOn(Scoreboard sb, int w, int h) {
+        String first = sb.players.get(0).name;
+        for (Scoreboard.Player p : sb.players) if (p.active) first = p.name;
+        List<Step> s = new ArrayList<>();
+        int[] colors = {GOLD, RED, GREEN, CYAN};
+        for (int i = 0; i < 4; i++) {
+            s.add(new Step(big(w, h, "GAME ON!", colors[i]), 300));
+            s.add(new Step(new Frame(w, h), 100));
+        }
+        s.add(new Step(big(w, h, "GAME ON!", GOLD), 900));
+        s.add(new Step(lines(w, h, Renderer.shortName(first), WHITE, "TO THROW", GOLD), 2000));
+        return s;
+    }
+
+    /** Bull-up decided. */
+    public static List<Step> throwsFirst(String name, int w, int h) {
+        List<Step> s = new ArrayList<>();
+        String n = Renderer.shortName(name);
+        for (int i = 0; i < 3; i++) {
+            s.add(new Step(lines(w, h, n, GOLD, "THROWS 1ST", WHITE), 400));
+            s.add(new Step(lines(w, h, n, GOLD, "", WHITE), 150));
+        }
+        s.add(new Step(lines(w, h, n, GOLD, "THROWS 1ST", WHITE), 2000));
         return s;
     }
 

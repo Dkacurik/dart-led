@@ -39,13 +39,19 @@ public final class Scoreboard {
     /** Cricket: raw mark icons per player (0 = first card, 1 = second) for 20,19,18,17,16,15,BULL. */
     public boolean cricket;
 
+    /** Bull-up ("WHO THROWS FIRST?") screen: names, distance from the bull in mm (null = not thrown yet). */
+    public boolean bullUp;
+    public final List<String> bullNames = new ArrayList<>();
+    public final List<Double> bullDist = new ArrayList<>();
+    public int bullActive = -1;
+
     /** Darts of the visit currently being entered, e.g. ["T20", "S20"]. */
     public final List<String> entered = new ArrayList<>();
     public final String[][] markIcons = new String[2][7];
     public int winnerLegs, loserLegs;
 
     public boolean isEmpty() {
-        return players.isEmpty() && winner == null;
+        return players.isEmpty() && winner == null && !bullUp;
     }
 
     /** Identity used to skip re-sending an unchanged picture. */
@@ -55,6 +61,7 @@ public final class Scoreboard {
         for (Player p : players) sb.append(p.key()).append(';');
         if (cricket) for (String[] row : markIcons) sb.append(java.util.Arrays.toString(row));
         sb.append("E:").append(entered);
+        if (bullUp) sb.append("B:").append(bullNames).append(bullDist).append(bullActive);
         return sb.toString();
     }
 
@@ -68,6 +75,14 @@ public final class Scoreboard {
               .append("  legs ").append(p.legs);
             if (!p.checkout.isEmpty()) sb.append("  (").append(p.checkout).append(')');
             sb.append('\n');
+        }
+        if (bullUp) {
+            sb.append("Bull-up:");
+            for (int i = 0; i < bullNames.size(); i++) {
+                Double d = bullDist.get(i);
+                sb.append("\n  ").append(i == bullActive ? "> " : "  ").append(bullNames.get(i))
+                  .append("  ").append(d == null ? "-" : d + " mm");
+            }
         }
         if (!entered.isEmpty()) sb.append("\nentering: ").append(String.join(" ", entered));
         if (cricket) {

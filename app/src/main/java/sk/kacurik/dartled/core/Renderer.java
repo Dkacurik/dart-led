@@ -17,6 +17,8 @@ public final class Renderer {
     private static final int MARKER = 0xFFFFFF;
     private static final int FINISH = 0x40FF40;   // the finishing double
     private static final int GOLD = 0xFFC814;
+    private static final int VISIT = 0x40FF40;     // "+60" shown after a visit
+    private static final int DIST = 0x28C8FF;
 
     private static final String[] TROPHY = {
             "#.###.#",
@@ -31,10 +33,22 @@ public final class Renderer {
     private Renderer() {}
 
     public static Frame render(Scoreboard sb, int w, int h) {
+        return render(sb, w, h, null);
+    }
+
+    /**
+     * @param labels optional text shown instead of a player's name (e.g. "+60" right after
+     *               their visit); null entries keep the name.
+     */
+    public static Frame render(Scoreboard sb, int w, int h, String[] labels) {
         Frame f = new Frame(w, h);
         List<Scoreboard.Player> ps = sb.players;
         if (sb.winner != null) {
             drawWinner(f, sb, w, h);
+            return f;
+        }
+        if (sb.bullUp) {
+            drawBullUp(f, sb, w, h);
             return f;
         }
         if (ps.isEmpty()) return f;
@@ -45,7 +59,7 @@ public final class Renderer {
             for (int i = 0; i < ps.size(); i++) {
                 Scoreboard.Player p = ps.get(i);
                 if (p.active && !p.checkout.isEmpty()) {
-                    drawCheckout(f, p, i, w, h);
+                    drawCheckout(f, p, i, w, h, label(labels, i));
                     return f;
                 }
             }
@@ -61,12 +75,16 @@ public final class Renderer {
             Scoreboard.Player p = ps.get(i);
             int y0 = i * rowH + (i == n - 1 ? h - n * rowH : 0); // give leftover pixels to last row
             boolean bright = !anyActive || p.active;
-            drawRow(f, p, i, 0, y0, w, rowH, bright);
+            drawRow(f, p, i, 0, y0, w, rowH, bright, label(labels, i));
         }
         return f;
     }
 
-    private static void drawRow(Frame f, Scoreboard.Player p, int index, int x0, int y0, int w, int rowH, boolean bright) {
+    private static String label(String[] labels, int i) {
+        return labels != null && i < labels.length ? labels[i] : null;
+    }
+
+    private static void drawRow(Frame f, Scoreboard.Player p, int index, int x0, int y0, int w, int rowH, boolean bright, String label) {
         String score = Integer.toString(p.score);
         String legs = Integer.toString(Math.min(p.legs, 99));
         PixelFont small = PixelFont.SMALL;
@@ -99,7 +117,7 @@ public final class Renderer {
         }
 
         // Name (and checkout hint for the player at the oche, if there's height for it).
-        String name = shortName(p.name);
+        String name = label != null ? label : shortName(p.name);
         // The turn bar needs 2px; drop it if a long name wouldn't fit otherwise
         // (the waiting player's row is dimmed anyway).
         if (PixelFont.BIG.width(name, 1) + markerW + 2 > scoreX && PixelFont.BIG.width(name, 1) + 2 <= scoreX) markerW = 0;
@@ -124,7 +142,7 @@ public final class Renderer {
         String shown = fit(nf, name, ns, nameRoom);
         int blockH = nf.h * ns + (withCheckout ? small.h + 1 : 0);
         int ny = y0 + (rowH - blockH) / 2;
-        nf.draw(f, shown, markerW, ny, ns, dim(NAME, bright));
+        nf.draw(f, shown, markerW, ny, ns, label != null ? VISIT : dim(NAME, bright));
 
         if (withCheckout) {
             String c = fit(small, co, 1, nameRoom);
@@ -133,7 +151,7 @@ public final class Renderer {
     }
 
     /** Top row: whose turn + remaining score. Bottom row: the checkout, e.g. "T20 T13 D16". */
-    private static void drawCheckout(Frame f, Scoreboard.Player p, int index, int w, int h) {
+    private static void drawCheckout(Frame f, Scoreboard.Player p, int index, int w, int h, String label) {
         PixelFont big = PixelFont.BIG;
         PixelFont small = PixelFont.SMALL;
         int rowH = h / 2;
@@ -145,8 +163,8 @@ public final class Renderer {
         int y1 = (rowH - big.h) / 2;
         f.fillRect(0, y1, 1, big.h, MARKER);
         big.draw(f, score, scoreX, y1, 1, PLAYER_COLORS[index % PLAYER_COLORS.length]);
-        String name = fit(big, shortName(p.name), 1, scoreX - 2 - 3);
-        big.draw(f, name, 2, y1, 1, NAME);
+        String name = fit(big, label != null ? label : shortName(p.name), 1, scoreX - 2 - 3);
+        big.draw(f, name, 2, y1, 1, label != null ? VISIT : NAME);
 
         // Row 2: one group per dart, biggest font + widest gap that fits.
         String[] darts = p.checkout.trim().toUpperCase().split("\\s+");
@@ -168,6 +186,34 @@ public final class Renderer {
         }
         String s = fit(small, p.checkout.toUpperCase(), 1, w);
         small.draw(f, s, 0, rowH + (h - rowH - small.h + 1) / 2, 1, CHECKOUT);
+    }
+
+    /** Bull-up: each player's name and distance from the bull; the closest one stays bright. */
+    private static void drawBullUp(Frame f, Scoreboard sb, int w, int h) {
+        int n = sb.bullNames.size();
+        if (n == 0) return;
+        PixelFont big = PixelFont.BIG;
+        int rows = Math.min(n, Math.max(1, h / big.h));
+        int rowH = h / rows;
+        boolean allThrown = true;
+        int best = -1;
+        for (int i = 0; i < n; i++) {
+            Double d = sb.bullDist.get(i);
+            if (d == null) allThrown = false;
+            else if (best < 0 || d < sb.bullDist.get(best)) best = i;
+        }
+        for (int i = 0; i < rows; i++) {
+            Double d = sb.bullDist.get(i);
+            String dist = d == null ? (i == sb.bullActive ? "..." : "-")
+                    : (d == Math.floor(d) ? Integer.toString(d.intValue()) : String.format(java.util.Locale.ROOT, "%.1f", d));
+            boolean bright = !allThrown || i == best;
+            int y = i * rowH + (rowH - big.h) / 2;
+            int dw = big.width(dist, 1);
+            big.draw(f, dist, w - dw, y, 1, dim(allThrown && i == best ? GOLD : DIST, bright));
+            if (i == sb.bullActive && !allThrown) f.fillRect(0, y, 1, big.h, MARKER);
+            String name = fit(big, shortName(sb.bullNames.get(i)), 1, w - dw - 2 - 3);
+            big.draw(f, name, 2, y, 1, dim(allThrown && i == best ? GOLD : NAME, bright));
+        }
     }
 
     /** End of match: trophy + winner's name, and "WINS 2-1" underneath. */

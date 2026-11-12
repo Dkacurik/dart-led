@@ -40,6 +40,11 @@ public final class DartApp extends Application {
     private volatile int momentToken;
     private volatile boolean playing;
 
+    // "+60" shown instead of a name for a few seconds after a visit.
+    private volatile int flashIdx = -1;
+    private volatile String flashText;
+    private volatile long flashUntil;
+
     // Idle clock: shown when no match is on screen.
     private volatile boolean idle;
     private volatile int idleSeconds;
@@ -191,8 +196,20 @@ public final class DartApp extends Application {
             int[] s = size();
             moment = Moments.forChange(before, sb, s[0], s[1], rnd);
         }
-        if (moment != null) play(moment);
-        else if (!playing) redraw();
+        if (moment != null) {
+            play(moment);
+            return;
+        }
+        int[] visit = Moments.lastVisit(before, sb);
+        if (visit != null && visit[1] > 0) {
+            flashIdx = visit[0];
+            flashText = "+" + visit[1];
+            flashUntil = System.currentTimeMillis() + 3500;
+            anim.schedule(() -> {
+                if (System.currentTimeMillis() >= flashUntil) redraw();
+            }, 3600, TimeUnit.MILLISECONDS);
+        }
+        if (!playing) redraw();
     }
 
     public boolean momentsOn() {
@@ -217,6 +234,10 @@ public final class DartApp extends Application {
             case "41": play(Moments.forChange(visitBoard(name, 501, 0), visitBoard(name, 460, 41), s[0], s[1], rnd)); break;
             case "69": play(Moments.forChange(visitBoard(name, 501, 0), visitBoard(name, 432, 69), s[0], s[1], rnd)); break;
             case "67": play(Moments.forChange(visitBoard(name, 501, 0), visitBoard(name, 434, 67), s[0], s[1], rnd)); break;
+            case "high": play(Moments.highFinish(121, s[0], s[1])); break;
+            case "fish": play(Moments.highFinish(170, s[0], s[1])); break;
+            case "gameon": play(Moments.gameOn(Scoreboard.demo(), s[0], s[1])); break;
+            case "bull": play(Moments.throwsFirst(name, s[0], s[1])); break;
             case "aim": play(Moments.forChange(visitBoard(name, 501, 0), visitBoard(name, 496, 5), s[0], s[1], rnd)); break;
             case "robin": play(Moments.forChange(entering(visitBoard(name, 501, 0), "S19", "S19", "S19"), visitBoard(name, 444, 57), s[0], s[1], rnd)); break;
             case "shanghai": play(Moments.forChange(entering(visitBoard(name, 501, 0), "S20", "D20", "T20"), visitBoard(name, 381, 120), s[0], s[1], rnd)); break;
@@ -271,7 +292,12 @@ public final class DartApp extends Application {
         }
         if (board.isEmpty()) return;
         int[] s = size();
-        frame = Renderer.render(board, s[0], s[1]);
+        String[] labels = null;
+        if (System.currentTimeMillis() < flashUntil && flashIdx >= 0 && flashIdx < board.players.size()) {
+            labels = new String[board.players.size()];
+            labels[flashIdx] = flashText;
+        }
+        frame = Renderer.render(board, s[0], s[1], labels);
         link.submitFrame(frame);
     }
 
