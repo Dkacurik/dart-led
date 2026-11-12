@@ -35,7 +35,16 @@ public final class DartReaderService extends AccessibilityService {
     @Override
     public void onAccessibilityEvent(AccessibilityEvent event) {
         CharSequence pkg = event.getPackageName();
-        if (!isDartCounter(pkg)) return;
+        if (!isDartCounter(pkg)) {
+            // Another app came to the front: after a while the display switches to the clock.
+            if (event.getEventType() == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED && pkg != null) {
+                String p = pkg.toString();
+                if (!p.equals("com.android.systemui") && !p.equals(getPackageName())) {
+                    DartApp.get().onOtherAppInFront();
+                }
+            }
+            return;
+        }
         if (!scheduled) {
             scheduled = true;
             handler.postDelayed(readNow, 250); // wait for the screen to settle

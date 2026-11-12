@@ -11,6 +11,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 import sk.kacurik.dartled.core.Frame;
+import sk.kacurik.dartled.core.IdleClock;
 import sk.kacurik.dartled.core.Moments;
 import sk.kacurik.dartled.core.Renderer;
 import sk.kacurik.dartled.core.Scoreboard;
@@ -39,6 +40,12 @@ public final class DartApp extends Application {
     private volatile int momentToken;
     private volatile boolean playing;
 
+    // Idle clock: shown when no match is on screen.
+    private volatile boolean idle;
+    private volatile int idleSeconds;
+    private volatile long nonMatchSince;   // when DartCounter stopped showing a match (0 = it shows one)
+    private volatile long lastMatchAt;     // last time a match screen changed
+
     public static DartApp get() {
         return instance;
     }
@@ -50,6 +57,7 @@ public final class DartApp extends Application {
         prefs = getSharedPreferences("dartled", MODE_PRIVATE);
         link = new LedLink(this);
         link.setAddress(prefs.getString("address", null));
+        anim.scheduleAtFixedRate(this::tick, 1, 1, TimeUnit.SECONDS);
     }
 
     public LedLink link() { return link; }
@@ -104,11 +112,70 @@ public final class DartApp extends Application {
         lastTexts = texts;
         lastSeenAt = System.currentTimeMillis();
         Scoreboard sb = ScreenParser.parse(texts);
-        if (sb.isEmpty()) return; // not the match screen: keep showing the last score
+        if (sb.isEmpty()) {             // not the match screen: keep the last score for now
+            if (nonMatchSince == 0) nonMatchSince = System.currentTimeMillis();
+            return;
+        }
+        nonMatchSince = 0;
+        lastMatchAt = System.currentTimeMillis();
+        if (idle) leaveIdle();
         show(sb);
     }
 
+    /** The reader saw another app come to the front (home screen, browser...). */
+    public void onOtherAppInFront() {
+        if (nonMatchSince == 0) nonMatchSince = System.currentTimeMillis();
+    }
+
+    public boolean idleOn() {
+        return prefs.getBoolean("idle", true);
+    }
+
+    public void setIdleOn(boolean on) {
+        prefs.edit().putBoolean("idle", on).apply();
+    }
+
+    /** Test button: pretend the match ended a while ago so the clock appears now. */
+    public void showIdleNow() {
+        nonMatchSince = System.currentTimeMillis() - 60_000;
+    }
+
+    private synchronized void leaveIdle() {
+        idle = false;
+        momentToken++;          // stop a dart-throw animation if one is running
+        playing = false;
+        boardKey = "";          // repaint the scoreboard even if it didn't change
+    }
+
+    /** Runs every second: decides whether to show the idle clock and animates it. */
+    private void tick() {
+        try {
+            long now = System.currentTimeMillis();
+            boolean shouldIdle = idleOn() && (board.isEmpty()
+                    || (nonMatchSince > 0 && now - nonMatchSince > 20_000)
+                    || (lastMatchAt > 0 && now - lastMatchAt > 10 * 60_000));
+            if (!shouldIdle) {
+                if (idle) { leaveIdle(); redraw(); }
+                return;
+            }
+            if (!idle) { idle = true; idleSeconds = 0; }
+            idleSeconds++;
+            if (playing) return;
+            int[] s = size();
+            if (idleSeconds % 30 == 0) {
+                play(IdleClock.dartThrow(s[0], s[1], rnd));
+                return;
+            }
+            redraw();
+        } catch (Exception ignored) {
+            // never let the timer die
+        }
+    }
+
     public void showDemo() {
+        nonMatchSince = 0;
+        lastMatchAt = System.currentTimeMillis();
+        if (idle) leaveIdle();
         boardKey = "";
         show(Scoreboard.demo());
     }
@@ -187,6 +254,14 @@ public final class DartApp extends Application {
 
     private void redraw() {
         if (playing) return;
+        if (idle) {
+            int[] s = size();
+            java.util.Calendar c = java.util.Calendar.getInstance();
+            frame = IdleClock.clock(s[0], s[1], c.get(java.util.Calendar.HOUR_OF_DAY),
+                    c.get(java.util.Calendar.MINUTE), c.get(java.util.Calendar.SECOND) % 2 == 0);
+            link.submitFrame(frame);
+            return;
+        }
         if (board.isEmpty()) return;
         int[] s = size();
         frame = Renderer.render(board, s[0], s[1]);

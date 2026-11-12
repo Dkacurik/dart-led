@@ -148,6 +148,18 @@ public final class MainActivity extends Activity {
             jokes.addView(b3);
         }
 
+        // Idle clock
+        header(col, "5. Idle clock");
+        text(col, "When no match is on screen for 20 seconds, the display shows a clock, "
+                + "and every 30 seconds a dart flies at a little dartboard.", 13);
+        Button idleBtn = button(col, "", null);
+        idleBtn.setText(app.idleOn() ? "Idle clock: ON" : "Idle clock: OFF");
+        idleBtn.setOnClickListener(v -> {
+            app.setIdleOn(!app.idleOn());
+            idleBtn.setText(app.idleOn() ? "Idle clock: ON" : "Idle clock: OFF");
+        });
+        button(col, "Show clock now", v -> app.showIdleNow());
+
         // Troubleshooting
         header(col, "If scores don't appear");
         text(col, "Start a match in DartCounter, then come back here. Below is what Dart LED "
