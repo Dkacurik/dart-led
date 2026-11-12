@@ -149,7 +149,7 @@ public final class MainActivity extends Activity {
         }
         int[] s = app.size();
         String setting = app.sizeSetting();
-        sizeButton.setText("Display size: " + ("auto".equals(setting) ? "auto (" + s[0] + "×" + s[1] + ")" : setting.replace('x', '×')));
+        sizeButton.setText("Display size: " + ("auto".equals(setting) ? "auto (" + s[0] + "×" + s[1] + ")" : setting.replace("x", "\u00D7")));
 
         Frame f = app.frame();
         if (f != null && f != shownFrame) {
@@ -168,10 +168,10 @@ public final class MainActivity extends Activity {
         long ago = app.lastSeenAt() == 0 ? -1 : (System.currentTimeMillis() - app.lastSeenAt()) / 1000;
         dbg.append("app: ").append(app.lastPackage())
            .append(ago < 0 ? "  (DartCounter not seen yet)" : "  (" + ago + " s ago)").append('\n');
-        dbg.append("parsed: ").append(app.board().toString().replace('\n', ' | ')).append('\n');
+        dbg.append("parsed: ").append(app.board().toString().replace("\n", " | ")).append('\n');
         dbg.append("texts:\n");
         List<String> t = app.lastTexts();
-        for (int i = 0; i < t.size() && i < 120; i++) dbg.append(i).append(": ").append(t.get(i).replace('\n', '⏎')).append('\n');
+        for (int i = 0; i < t.size() && i < 120; i++) dbg.append(i).append(": ").append(t.get(i).replace("\n", " / ")).append('\n');
         debugText.setText(dbg.toString());
     }
 

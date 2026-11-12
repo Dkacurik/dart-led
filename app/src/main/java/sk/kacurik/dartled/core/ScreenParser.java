@@ -26,7 +26,7 @@ public final class ScreenParser {
         for (String r : raw) {
             if (r == null) continue;
             for (String line : r.split("[\\r\\n]+")) {
-                String t = line.trim().replace(' ', ' ');
+                String t = line.trim().replace('\u00A0', ' ');
                 if (!t.isEmpty()) out.add(t);
             }
         }
@@ -127,7 +127,7 @@ public final class ScreenParser {
 
     private static String findTurnName(List<String> t) {
         for (String s : t) {
-            String p = plain(s).replace('’', '\'');
+            String p = plain(s).replace('\u2019', '\'');
             int k = p.indexOf("'S TURN");
             if (k <= 0) k = p.indexOf("S TURN");
             if (k > 0 && p.contains("TURN")) return p.substring(0, k).trim();
