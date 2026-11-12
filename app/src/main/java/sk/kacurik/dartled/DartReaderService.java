@@ -1,6 +1,7 @@
 package sk.kacurik.dartled;
 
 import android.accessibilityservice.AccessibilityService;
+import android.graphics.Rect;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.accessibility.AccessibilityEvent;
@@ -10,6 +11,8 @@ import android.view.accessibility.AccessibilityWindowInfo;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+
+import sk.kacurik.dartled.core.ScreenParser;
 
 /**
  * Reads the texts shown by DartCounter (names, scores, legs) using Android's accessibility API.
@@ -65,11 +68,22 @@ public final class DartReaderService extends AccessibilityService {
         if (!node.isVisibleToUser()) return;
         CharSequence t = node.getText();
         CharSequence d = node.getContentDescription();
-        if (t != null && t.length() > 0) out.add(t.toString());
-        if (d != null && d.length() > 0 && (t == null || !d.toString().equals(t.toString()))) out.add(d.toString());
+        if (t != null && t.length() > 0) out.add(withPosition(node, t.toString()));
+        if (d != null && d.length() > 0 && (t == null || !d.toString().equals(t.toString()))) out.add(withPosition(node, d.toString()));
         for (int i = 0; i < node.getChildCount(); i++) {
             collect(node.getChild(i), out, depth + 1);
         }
+    }
+
+    /**
+     * Icons (e.g. Cricket marks) and Cricket target buttons ("20 .") get their on-screen
+     * position appended, so the parser can tell which row and which player they belong to.
+     */
+    private static String withPosition(AccessibilityNodeInfo node, String text) {
+        if (!ScreenParser.needsPosition(text)) return text;
+        Rect r = new Rect();
+        node.getBoundsInScreen(r);
+        return text + ScreenParser.POS + r.centerX() + "," + r.centerY();
     }
 
     private static boolean isDartCounter(CharSequence pkg) {

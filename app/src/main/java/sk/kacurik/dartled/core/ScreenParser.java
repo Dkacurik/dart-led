@@ -120,6 +120,9 @@ public final class ScreenParser {
             sb.players.clear();
             sb.players.addAll(marked);
         }
+        for (String tok : t) {
+            if (isMprLabel(plain(tok))) { parseCricketMarks(t, sb); break; }
+        }
         return sb;
     }
 
@@ -206,7 +209,112 @@ public final class ScreenParser {
 
     static boolean isAvgLabel(String s) {
         String p = plain(s);
-        return p.startsWith("3-DART AVG") || p.startsWith("3 DART AVG");
+        return p.startsWith("3-DART AVG") || p.startsWith("3 DART AVG") || isMprLabel(p);
+    }
+
+    /** Cricket cards show "Avg. MPR" (marks per round) instead of the 3-dart average. */
+    static boolean isMprLabel(String p) {
+        return p.startsWith("AVG. MPR") || p.startsWith("AVG MPR") || p.equals("MPR");
+    }
+
+    static final String[] CRICKET_TARGETS = {"20", "19", "18", "17", "16", "15", "BULL"};
+
+    /** Separator between a token and its on-screen position ("x,y"). */
+    public static final char POS = '\u0001';
+    private static final Pattern TARGET_BUTTON = Pattern.compile("^(\\d{1,2}|BULL) \\.{1,3}$", Pattern.CASE_INSENSITIVE);
+
+    /** Should the reader record where this text is on screen? */
+    public static boolean needsPosition(String text) {
+        String s = text.trim();
+        return isIcon(s) || TARGET_BUTTON.matcher(s).matches();
+    }
+
+    static String strip(String s) {
+        int k = s.indexOf(POS);
+        return k < 0 ? s : s.substring(0, k);
+    }
+
+    static int[] position(String s) {
+        int k = s.indexOf(POS);
+        if (k < 0) return null;
+        try {
+            String[] p = s.substring(k + 1).split(",");
+            return new int[]{Integer.parseInt(p[0].trim()), Integer.parseInt(p[1].trim())};
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * Cricket marks. Each target row has input buttons "20 .", "20 ..", "20 ..." and, when a
+     * player has marks on it, an icon left of the buttons (first player) or right of them
+     * (second player). Icons are matched to rows and sides by their position on screen.
+     */
+    static void parseCricketMarks(List<String> t, Scoreboard sb) {
+        sb.cricket = true;
+        int[] rowY = new int[7], minX = new int[7], maxX = new int[7], count = new int[7];
+        java.util.Arrays.fill(minX, Integer.MAX_VALUE);
+        java.util.Arrays.fill(maxX, Integer.MIN_VALUE);
+        for (String tok : t) {
+            String s = strip(tok).trim();
+            int[] pos = position(tok);
+            if (pos == null || !TARGET_BUTTON.matcher(s).matches()) continue;
+            String target = plain(s.substring(0, s.indexOf(' ')));
+            for (int k = 0; k < CRICKET_TARGETS.length; k++) {
+                if (CRICKET_TARGETS[k].equals(target)) {
+                    rowY[k] += pos[1];
+                    count[k]++;
+                    minX[k] = Math.min(minX[k], pos[0]);
+                    maxX[k] = Math.max(maxX[k], pos[0]);
+                }
+            }
+        }
+        int rows = 0, spacing = Integer.MAX_VALUE;
+        for (int k = 0; k < 7; k++) if (count[k] > 0) { rowY[k] /= count[k]; rows++; }
+        for (int k = 1; k < 7; k++) {
+            if (count[k] > 0 && count[k - 1] > 0) spacing = Math.min(spacing, Math.abs(rowY[k] - rowY[k - 1]));
+        }
+        if (rows == 0) return;
+        if (spacing == Integer.MAX_VALUE) spacing = 100;
+        // Horizontal gap between the S/D/T buttons; marks sit within ~2.5 gaps of them.
+        int gap = 0;
+        for (int k = 0; k < 7; k++) if (count[k] >= 3) { gap = (maxX[k] - minX[k]) / (count[k] - 1); break; }
+        int reach = gap > 0 ? gap * 5 / 2 : Integer.MAX_VALUE;
+
+        for (String tok : t) {
+            String s = strip(tok);
+            int[] pos = position(tok);
+            if (pos == null || !isIcon(s.trim())) continue;
+            int best = -1, bestDy = Integer.MAX_VALUE;
+            for (int k = 0; k < 7; k++) {
+                if (count[k] == 0) continue;
+                int dy = Math.abs(pos[1] - rowY[k]);
+                if (dy < bestDy) { bestDy = dy; best = k; }
+            }
+            if (best < 0 || bestDy > spacing / 2) continue;      // not on the board (avatar, undo...)
+            if (pos[0] < minX[best] && minX[best] - pos[0] <= reach) sb.markIcons[0][best] = s.trim();
+            else if (pos[0] > maxX[best] && pos[0] - maxX[best] <= reach) sb.markIcons[1][best] = s.trim();
+        }
+    }
+
+    /** A token with no letters or digits, e.g. an icon-font symbol. */
+    static boolean isIcon(String s) {
+        return !s.isEmpty() && !s.matches(".*[\\p{L}\\p{N}].*");
+    }
+
+    /** Shows invisible / icon characters as [U+XXXX] so they can be read in the debug view. */
+    public static String visible(String s) {
+        StringBuilder b = new StringBuilder();
+        for (int i = 0; i < s.length(); ) {
+            int cp = s.codePointAt(i);
+            boolean plainChar = (cp >= 0x21 && cp < 0x7F) || Character.isLetterOrDigit(cp);
+            if (cp == POS) b.append(" @");
+            else if (plainChar) b.appendCodePoint(cp);
+            else if (cp == ' ') b.append(' ');
+            else b.append(String.format(Locale.ROOT, "[U+%04X]", cp));
+            i += Character.charCount(cp);
+        }
+        return b.toString();
     }
 
     static boolean isInt(String s) {

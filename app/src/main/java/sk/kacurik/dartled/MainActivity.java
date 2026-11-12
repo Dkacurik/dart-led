@@ -38,6 +38,7 @@ import java.util.List;
 import java.util.Map;
 
 import sk.kacurik.dartled.core.Frame;
+import sk.kacurik.dartled.core.ScreenParser;
 
 @SuppressLint({"MissingPermission", "SetTextI18n"})
 public final class MainActivity extends Activity {
@@ -192,7 +193,7 @@ public final class MainActivity extends Activity {
         dbg.append("parsed: ").append(app.board().toString().replace("\n", " | ")).append('\n');
         dbg.append("texts:\n");
         List<String> t = app.lastTexts();
-        for (int i = 0; i < t.size() && i < 120; i++) dbg.append(i).append(": ").append(t.get(i).replace("\n", " / ")).append('\n');
+        for (int i = 0; i < t.size() && i < 120; i++) dbg.append(i).append(": ").append(ScreenParser.visible(t.get(i).replace("\n", " / "))).append('\n');
         debugText.setText(dbg.toString());
     }
 

@@ -35,6 +35,10 @@ public final class Scoreboard {
 
     /** Set on DartCounter's end-of-match screen: who won and the final legs, e.g. 2 and 1. */
     public String winner;
+
+    /** Cricket: raw mark icons per player (0 = first card, 1 = second) for 20,19,18,17,16,15,BULL. */
+    public boolean cricket;
+    public final String[][] markIcons = new String[2][7];
     public int winnerLegs, loserLegs;
 
     public boolean isEmpty() {
@@ -46,6 +50,7 @@ public final class Scoreboard {
         StringBuilder sb = new StringBuilder();
         if (winner != null) sb.append("W:").append(winner).append(winnerLegs).append('-').append(loserLegs).append(';');
         for (Player p : players) sb.append(p.key()).append(';');
+        if (cricket) for (String[] row : markIcons) sb.append(java.util.Arrays.toString(row));
         return sb.toString();
     }
 
@@ -59,6 +64,15 @@ public final class Scoreboard {
               .append("  legs ").append(p.legs);
             if (!p.checkout.isEmpty()) sb.append("  (").append(p.checkout).append(')');
             sb.append('\n');
+        }
+        if (cricket) {
+            String[] names = {"20", "19", "18", "17", "16", "15", "B"};
+            sb.append("\ncricket marks:");
+            for (int k = 0; k < 7; k++) {
+                sb.append("\n  ").append(names[k]).append(": ")
+                  .append(markIcons[0][k] == null ? "-" : ScreenParser.visible(markIcons[0][k])).append(" | ")
+                  .append(markIcons[1][k] == null ? "-" : ScreenParser.visible(markIcons[1][k]));
+            }
         }
         return sb.toString().trim();
     }
