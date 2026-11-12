@@ -12,6 +12,11 @@ public final class Scoreboard {
         public final int legs;
         public final String checkout; // e.g. "T20 T13 D16", may be empty
         public final boolean active;
+        /** Score of the player's last visit (-1 if unknown) and darts thrown this leg (-1 if unknown). */
+        public int lastScore = -1;
+        public int darts = -1;
+        /** True if the last visit was shown as a bust. */
+        public boolean lastBust;
 
         public Player(String name, int score, int legs, String checkout, boolean active) {
             this.name = name;
@@ -22,7 +27,7 @@ public final class Scoreboard {
         }
 
         String key() {
-            return name + "|" + score + "|" + legs + "|" + checkout + "|" + active;
+            return name + "|" + score + "|" + legs + "|" + checkout + "|" + active + "|" + darts + "|" + lastScore;
         }
     }
 

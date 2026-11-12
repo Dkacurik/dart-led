@@ -115,6 +115,27 @@ public final class MainActivity extends Activity {
         boardText = text(col, "", 15);
         button(col, "Send test score", v -> app.showDemo());
 
+        // Match moments
+        header(col, "4. Match moments");
+        text(col, "Short animations for 180, ton+, bust, game shot – and something special for 26.", 13);
+        Button momentsBtn = button(col, "", null);
+        momentsBtn.setText(app.momentsOn() ? "Match moments: ON" : "Match moments: OFF");
+        momentsBtn.setOnClickListener(v -> {
+            app.setMomentsOn(!app.momentsOn());
+            momentsBtn.setText(app.momentsOn() ? "Match moments: ON" : "Match moments: OFF");
+        });
+        LinearLayout tests = new LinearLayout(this);
+        tests.setOrientation(LinearLayout.HORIZONTAL);
+        col.addView(tests);
+        String[][] kinds = {{"180", "180"}, {"Ton+", "ton"}, {"26", "26"}, {"Bust", "bust"}, {"Game shot", "game"}};
+        for (String[] k : kinds) {
+            Button b2 = new Button(this);
+            b2.setText(k[0]);
+            b2.setAllCaps(false);
+            b2.setOnClickListener(v -> app.testMoment(k[1]));
+            tests.addView(b2);
+        }
+
         // Troubleshooting
         header(col, "If scores don't appear");
         text(col, "Start a match in DartCounter, then come back here. Below is what Dart LED "

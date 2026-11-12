@@ -85,7 +85,21 @@ public final class ScreenParser {
                 }
             }
 
-            sb.players.add(new Scoreboard.Player(name, score, legs, co.toString(), false));
+            Scoreboard.Player pl = new Scoreboard.Player(name, score, legs, co.toString(), false);
+            // Stats under this card: "Last score" x, "Darts thrown" y (up to the next card).
+            int statsEnd = p + 1 < avgIdx.size() ? avgIdx.get(p + 1) : t.size();
+            for (int i = end + 1; i + 1 < statsEnd + 1 && i + 1 < t.size(); i++) {
+                String label = plain(t.get(i));
+                String val = t.get(i + 1);
+                if (label.startsWith("LAST SCORE") && pl.lastScore < 0) {
+                    if (isInt(val)) pl.lastScore = Integer.parseInt(val);
+                    else if (plain(val).contains("BUST")) { pl.lastScore = 0; pl.lastBust = true; }
+                } else if (label.startsWith("DARTS THROWN") && pl.darts < 0 && isInt(val)) {
+                    pl.darts = Integer.parseInt(val);
+                }
+                if (pl.lastScore >= 0 && pl.darts >= 0) break;
+            }
+            sb.players.add(pl);
         }
 
         // Mark whose turn it is.
@@ -97,7 +111,11 @@ public final class ScreenParser {
                 String have = plain(pl.name);
                 boolean active = !any && !have.isEmpty() && (have.startsWith(want) || want.startsWith(have));
                 any |= active;
-                marked.add(new Scoreboard.Player(pl.name, pl.score, pl.legs, pl.checkout, active));
+                Scoreboard.Player np = new Scoreboard.Player(pl.name, pl.score, pl.legs, pl.checkout, active);
+                np.lastScore = pl.lastScore;
+                np.darts = pl.darts;
+                np.lastBust = pl.lastBust;
+                marked.add(np);
             }
             sb.players.clear();
             sb.players.addAll(marked);

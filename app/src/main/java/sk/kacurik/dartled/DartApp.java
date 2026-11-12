@@ -5,8 +5,13 @@ import android.content.SharedPreferences;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Random;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 import sk.kacurik.dartled.core.Frame;
+import sk.kacurik.dartled.core.Moments;
 import sk.kacurik.dartled.core.Renderer;
 import sk.kacurik.dartled.core.Scoreboard;
 import sk.kacurik.dartled.core.ScreenParser;
@@ -27,6 +32,12 @@ public final class DartApp extends Application {
     private volatile List<String> lastTexts = new ArrayList<>();
     private volatile String lastPackage = "-";
     private volatile long lastSeenAt;
+
+    // Match-moment animations (180, bust, game shot, 26...)
+    private final ScheduledExecutorService anim = Executors.newSingleThreadScheduledExecutor();
+    private final Random rnd = new Random();
+    private volatile int momentToken;
+    private volatile boolean playing;
 
     public static DartApp get() {
         return instance;
@@ -105,12 +116,60 @@ public final class DartApp extends Application {
     private synchronized void show(Scoreboard sb) {
         String key = sb.key();
         if (key.equals(boardKey)) return;
+        Scoreboard before = board;
         boardKey = key;
         board = sb;
-        redraw();
+        List<Moments.Step> moment = null;
+        if (momentsOn()) {
+            int[] s = size();
+            moment = Moments.forChange(before, sb, s[0], s[1], rnd);
+        }
+        if (moment != null) play(moment);
+        else if (!playing) redraw();
+    }
+
+    public boolean momentsOn() {
+        return prefs.getBoolean("moments", true);
+    }
+
+    public void setMomentsOn(boolean on) {
+        prefs.edit().putBoolean("moments", on).apply();
+    }
+
+    /** For the test buttons: "180", "26", "ton", "bust", "game". */
+    public void testMoment(String kind) {
+        int[] s = size();
+        String name = board.players.isEmpty() ? "Dávid" : board.players.get(0).name;
+        switch (kind) {
+            case "180": play(Moments.oneEighty(s[0], s[1])); break;
+            case "26": play(Moments.twentySix(rnd, s[0], s[1])); break;
+            case "ton": play(Moments.ton(name, 140, s[0], s[1])); break;
+            case "bust": play(Moments.bust(name, s[0], s[1])); break;
+            default: play(Moments.gameShot(name, s[0], s[1])); break;
+        }
+    }
+
+    private void play(List<Moments.Step> steps) {
+        int token = ++momentToken;
+        playing = true;
+        anim.execute(() -> playStep(steps, 0, token));
+    }
+
+    private void playStep(List<Moments.Step> steps, int i, int token) {
+        if (token != momentToken) return;            // a newer moment took over
+        if (i >= steps.size()) {
+            playing = false;
+            redraw();                                // back to the scoreboard
+            return;
+        }
+        Moments.Step st = steps.get(i);
+        frame = st.frame;
+        link.submitFrame(st.frame);
+        anim.schedule(() -> playStep(steps, i + 1, token), st.ms, TimeUnit.MILLISECONDS);
     }
 
     private void redraw() {
+        if (playing) return;
         if (board.isEmpty()) return;
         int[] s = size();
         frame = Renderer.render(board, s[0], s[1]);
@@ -120,7 +179,7 @@ public final class DartApp extends Application {
     /** After (re)connecting: set brightness and repaint, since the panel may have reset. */
     void onLinkReady() {
         link.setBrightness(brightness());
-        if (!board.isEmpty()) {
+        if (!board.isEmpty() && !playing) {
             int[] s = size();
             frame = Renderer.render(board, s[0], s[1]);
             link.submitFrame(frame);

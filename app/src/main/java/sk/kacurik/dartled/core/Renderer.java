@@ -72,7 +72,7 @@ public final class Renderer {
         PixelFont small = PixelFont.SMALL;
 
         int markerW = 2;                                   // 1px bar + 1px gap
-        int legsW = small.width(legs, 1) + 3;              // 2px gap + digits + 1px right margin
+        int legsW = small.width(legs, 1) + 1;              // 1px gap + digits, flush right
         boolean showLegs = rowH >= small.h;
 
         // Pick the biggest score font that fits.
@@ -93,18 +93,20 @@ public final class Renderer {
         sf.draw(f, score, scoreX, scoreY, ss, color);
 
         if (showLegs) {
-            int lx = w - legsW + 2;
+            int lx = w - legsW + 1;
             int ly = y0 + (rowH - small.h) / 2;
             small.draw(f, legs, lx, ly, 1, dim(LEGS, bright));
         }
 
-        if (p.active) {
+        // Name (and checkout hint for the player at the oche, if there's height for it).
+        String name = shortName(p.name);
+        // The turn bar needs 2px; drop it if a long name wouldn't fit otherwise
+        // (the waiting player's row is dimmed anyway).
+        if (PixelFont.BIG.width(name, 1) + markerW + 2 > scoreX && PixelFont.BIG.width(name, 1) + 2 <= scoreX) markerW = 0;
+        if (p.active && markerW > 0) {
             f.fillRect(x0, y0 + (rowH - scoreH) / 2, 1, scoreH, MARKER);
         }
-
-        // Name (and checkout hint for the player at the oche, if there's height for it).
         int nameRoom = scoreX - markerW - 2;
-        String name = ScreenParser.plain(p.name);
         String co = p.active ? p.checkout.toUpperCase() : "";
 
         PixelFont nf = null;
@@ -143,7 +145,7 @@ public final class Renderer {
         int y1 = (rowH - big.h) / 2;
         f.fillRect(0, y1, 1, big.h, MARKER);
         big.draw(f, score, scoreX, y1, 1, PLAYER_COLORS[index % PLAYER_COLORS.length]);
-        String name = fit(big, ScreenParser.plain(p.name), 1, scoreX - 2 - 3);
+        String name = fit(big, shortName(p.name), 1, scoreX - 2 - 3);
         big.draw(f, name, 2, y1, 1, NAME);
 
         // Row 2: one group per dart, biggest font + widest gap that fits.
@@ -185,7 +187,7 @@ public final class Renderer {
         int y2 = h - gap - lineH;
         if (h < 2 * lineH + 2) { y1 = 0; y2 = h - lineH; }
 
-        String name = fit(big, ScreenParser.plain(sb.winner), s, w - (trophyW + 2) * s);
+        String name = fit(big, shortName(sb.winner), s, w - (trophyW + 2) * s);
         int total = (trophyW + 2) * s + big.width(name, s);
         int x = Math.max(0, (w - total) / 2);
         for (int ty = 0; ty < TROPHY.length; ty++) {
@@ -195,6 +197,14 @@ public final class Renderer {
         }
         big.draw(f, name, x + (trophyW + 2) * s, y1, s, GOLD);
         big.draw(f, result, (w - big.width(result, s)) / 2, y2, s, NAME);
+    }
+
+    /** Names are shown in capitals without accents, at most 7 letters: "Dávid" -> "DAVID". */
+    static final int MAX_NAME = 7;
+
+    static String shortName(String name) {
+        String n = ScreenParser.plain(name).trim();
+        return n.length() > MAX_NAME ? n.substring(0, MAX_NAME).trim() : n;
     }
 
     private static String fit(PixelFont font, String s, int scale, int room) {
