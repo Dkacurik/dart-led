@@ -50,17 +50,19 @@ public final class ScreenParser {
             int end = avgIdx.get(p); // exclusive
             if (p > 0) start = skipStats(t, avgIdx.get(p - 1), end);
 
+            // The remaining score is the first whole number that directly follows a player's
+            // name. Numbers that follow a stat label ("Best leg 34", "Darts thrown 3") are skipped.
             int scoreAt = -1;
-            for (int i = start; i < end; i++) {
-                if (isInt(t.get(i))) { scoreAt = i; break; }
+            String name = null;
+            for (int i = start; i < end && scoreAt < 0; i++) {
+                if (!isInt(t.get(i))) continue;
+                for (int j = i - 1; j >= start; j--) {
+                    String prev = t.get(j);
+                    if (isStatLabel(plain(prev)) || isInt(prev) || prev.matches("^[\\d.,%/\\-]+$")) break;
+                    if (isNameLike(prev)) { scoreAt = i; name = prev; break; }
+                }
             }
             if (scoreAt < 0) continue;
-
-            String name = null;
-            for (int i = scoreAt - 1; i >= start; i--) {
-                if (isNameLike(t.get(i))) { name = t.get(i); break; }
-            }
-            if (name == null) name = "P" + (sb.players.size() + 1);
 
             int score = Integer.parseInt(t.get(scoreAt));
             if (score > 1001) continue;
@@ -193,10 +195,19 @@ public final class ScreenParser {
         return INT.matcher(s).matches();
     }
 
+    /** Labels of the per-player stats under the score: "Last score", "Best leg", "3-dart avg."... */
+    static boolean isStatLabel(String p) {
+        return STAT_WORDS.matcher(p).find() || p.startsWith("FIRST 9");
+    }
+
+    private static final Pattern STAT_WORDS = Pattern.compile(
+            "\\b(AVG|AVERAGE|SCORE|THROWN|BEST|WORST|CHECKOUTS?|HIGHEST|LEGS?|DARTS|FINISH|RATE|TONS|180S?)\\b");
+
     private static boolean isNameLike(String s) {
         if (s.length() > 24 || isInt(s)) return false;
         if (!s.matches(".*\\p{L}.*")) return false;
         String p = plain(s);
+        if (isStatLabel(p)) return false;
         if (p.contains("TURN") || p.startsWith("FIRST TO") || p.startsWith("BEST OF")
                 || p.contains("LEGS") || p.contains("SETS") || p.startsWith("LAST SCORE")
                 || p.startsWith("DARTS THROWN") || p.startsWith("SINGLE") || p.startsWith("DOUBLE")
