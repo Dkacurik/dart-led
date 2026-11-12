@@ -118,7 +118,7 @@ public final class MainActivity extends Activity {
 
         // Match moments
         header(col, "4. Match moments");
-        text(col, "Short animations for 180, ton+, bust, game shot – and something special for 26.", 13);
+        text(col, "Short animations for 180, ton+, bust, no score, game shot – and jokes for 26, 41, 45, 67, 69 and visits under 10.", 13);
         Button momentsBtn = button(col, "", null);
         momentsBtn.setText(app.momentsOn() ? "Match moments: ON" : "Match moments: OFF");
         momentsBtn.setOnClickListener(v -> {
@@ -128,13 +128,24 @@ public final class MainActivity extends Activity {
         LinearLayout tests = new LinearLayout(this);
         tests.setOrientation(LinearLayout.HORIZONTAL);
         col.addView(tests);
-        String[][] kinds = {{"180", "180"}, {"Ton+", "ton"}, {"26", "26"}, {"Bust", "bust"}, {"Game shot", "game"}};
+        String[][] kinds = {{"180", "180"}, {"Ton+", "ton"}, {"26", "26"}, {"Bust", "bust"}, {"No score", "noscore"}, {"Game shot", "game"}};
+        String[][] jokeKinds = {{"45", "45"}, {"41", "41"}, {"69", "69"}, {"67", "67"}, {"Under 10", "aim"}};
         for (String[] k : kinds) {
             Button b2 = new Button(this);
             b2.setText(k[0]);
             b2.setAllCaps(false);
             b2.setOnClickListener(v -> app.testMoment(k[1]));
             tests.addView(b2);
+        }
+        LinearLayout jokes = new LinearLayout(this);
+        jokes.setOrientation(LinearLayout.HORIZONTAL);
+        col.addView(jokes);
+        for (String[] k : jokeKinds) {
+            Button b3 = new Button(this);
+            b3.setText(k[0]);
+            b3.setAllCaps(false);
+            b3.setOnClickListener(v -> app.testMoment(k[1]));
+            jokes.addView(b3);
         }
 
         // Troubleshooting

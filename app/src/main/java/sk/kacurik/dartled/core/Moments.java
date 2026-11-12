@@ -69,7 +69,51 @@ public final class Moments {
             {"MAMA", "MIA!"},
     };
 
+    /** 45 = the classic 20, 20, 5. */
+    static final String[][] FORTY_FIVE = {
+            {"WIDE", "LEFT!"},
+            {"20 20 5", "CLASSIC!"},
+            {"5 SAYS", "HELLO!"},
+            {"SO CLOSE", "TO 60"},
+            {"LEFT", "TURN!"},
+            {"THE 5 IS", "LONELY"},
+            {"WRONG", "BED!"},
+            {"OOPS!", "WIDE LEFT"},
+            {"ZASA", "VLAVO!"},
+    };
+
+    /** 41 = 20, 20, 1. */
+    static final String[][] FORTY_ONE = {
+            {"WIDE", "RIGHT!"},
+            {"20 20 1", "CLASSIC!"},
+            {"1 IS THE", "LONELIEST"},
+            {"RIGHT", "TURN!"},
+            {"ONE MORE", "TO THE 1"},
+            {"OOPS!", "WIDE RIGHT"},
+            {"ZASA", "VPRAVO!"},
+            {"SO CLOSE", "TO 60"},
+    };
+
+    static final String[][] SIXTY_NINE = {
+            {"NICE.", ""},
+            {"69", "NICE!"},
+            {"NICE", "NICE NICE"},
+            {"HEHE", "69"},
+            {"VERY", "NICE!"},
+            {"NAJS!", ""},
+    };
+
+    static final String[][] SIXTY_SEVEN = {
+            {"SIX", "SEVEN!"},
+            {"6-7!", "6-7!"},
+            {"SIIIX", "SEVENNN!"},
+            {"67?!", "SIX SEVEN"},
+            {"IT'S 6-7", "BRO!"},
+            {"SIX", "SEVEN..."},
+    };
+
     private static int lastJoke = -1;
+    private static final java.util.Map<Integer, Integer> lastPick = new java.util.HashMap<>();
 
     private Moments() {}
 
@@ -104,10 +148,23 @@ public final class Moments {
                 visit = a.score - b.score;
             }
 
-            boolean bust = b.lastBust || (b.score == a.score && a.score <= 180 && b.darts > a.darts);
+            // Bust = the visit scored more than was left, or would leave 1 (you must finish on
+            // a double). The remaining score then stays the same. Missed darts are NOT a bust.
+            boolean bust = b.lastBust
+                    || (b.score == a.score && b.lastScore > 0
+                        && (b.lastScore > a.score || a.score - b.lastScore == 1));
             if (bust) return bust(b.name, w, h);
+            if (visit == 0 && b.score == a.score) return noScore(b.name, w, h);
             if (visit == 180) return oneEighty(w, h);
+            // Under 10 while still far from a finish (more than 50 left before the visit).
+            if (visit >= 1 && visit <= 9 && a.score > 50) {
+                return scoreJoke(visit, new String[][]{{"AIM?", "WHAT AIM?"}}, CYAN, PINK, rnd, w, h);
+            }
             if (visit == 26) return twentySix(rnd, w, h);
+            if (visit == 45) return scoreJoke(45, FORTY_FIVE, CYAN, PINK, rnd, w, h);
+            if (visit == 41) return scoreJoke(41, FORTY_ONE, CYAN, PINK, rnd, w, h);
+            if (visit == 69) return scoreJoke(69, SIXTY_NINE, PINK, GOLD, rnd, w, h);
+            if (visit == 67) return sixSeven(rnd, w, h);
             if (visit >= 100 && visit < 180) return ton(b.name, visit, w, h);
         }
         return null;
@@ -147,6 +204,16 @@ public final class Moments {
         return s;
     }
 
+    public static List<Step> noScore(String name, int w, int h) {
+        List<Step> s = new ArrayList<>();
+        for (int i = 0; i < 3; i++) {
+            s.add(new Step(lines(w, h, "NO", GOLD, "SCORE!", GOLD), 350));
+            s.add(new Step(new Frame(w, h), 150));
+        }
+        s.add(new Step(lines(w, h, Renderer.shortName(name), WHITE, "NO SCORE", GOLD), 1500));
+        return s;
+    }
+
     public static List<Step> gameShot(String name, int w, int h) {
         List<Step> s = new ArrayList<>();
         String n = Renderer.shortName(name);
@@ -169,6 +236,35 @@ public final class Moments {
         }
         s.add(new Step(big(w, h, "26", CYAN), 500));
         s.add(new Step(lines(w, h, msg[0], CYAN, msg[1], PINK), 3500));
+        return s;
+    }
+
+    /** Flashes the score, then a random joke for it (never the same twice in a row). */
+    public static List<Step> scoreJoke(int score, String[][] jokes, int c1, int c2, Random rnd, int w, int h) {
+        int pick = rnd.nextInt(jokes.length);
+        Integer prev = lastPick.get(score);
+        if (prev != null && pick == prev && jokes.length > 1) pick = (pick + 1 + rnd.nextInt(jokes.length - 1)) % jokes.length;
+        lastPick.put(score, pick);
+        String[] msg = jokes[pick];
+        List<Step> s = new ArrayList<>();
+        String n = Integer.toString(score);
+        for (int i = 0; i < 2; i++) {
+            s.add(new Step(big(w, h, n, c1), 300));
+            s.add(new Step(new Frame(w, h), 120));
+        }
+        s.add(new Step(big(w, h, n, c1), 500));
+        s.add(new Step(msg[1].isEmpty() ? big(w, h, msg[0], c2) : lines(w, h, msg[0], c1, msg[1], c2), 3500));
+        return s;
+    }
+
+    /** 67: "SIX" ... "SEVEN" bouncing between the two numbers, then a joke. */
+    public static List<Step> sixSeven(Random rnd, int w, int h) {
+        List<Step> s = new ArrayList<>();
+        for (int i = 0; i < 3; i++) {
+            s.add(new Step(big(w, h, "6", GOLD), 280));
+            s.add(new Step(big(w, h, "7", PINK), 280));
+        }
+        s.addAll(scoreJoke(67, SIXTY_SEVEN, GOLD, PINK, rnd, w, h).subList(5, 6)); // just the joke frame
         return s;
     }
 

@@ -136,7 +136,7 @@ public final class DartApp extends Application {
         prefs.edit().putBoolean("moments", on).apply();
     }
 
-    /** For the test buttons: "180", "26", "ton", "bust", "game". */
+    /** For the test buttons: "180", "26", "ton", "bust", "noscore", "game". */
     public void testMoment(String kind) {
         int[] s = size();
         String name = board.players.isEmpty() ? "Dávid" : board.players.get(0).name;
@@ -145,11 +145,28 @@ public final class DartApp extends Application {
             case "26": play(Moments.twentySix(rnd, s[0], s[1])); break;
             case "ton": play(Moments.ton(name, 140, s[0], s[1])); break;
             case "bust": play(Moments.bust(name, s[0], s[1])); break;
+            case "noscore": play(Moments.noScore(name, s[0], s[1])); break;
+            case "45": play(Moments.forChange(visitBoard(name, 501, 0), visitBoard(name, 456, 45), s[0], s[1], rnd)); break;
+            case "41": play(Moments.forChange(visitBoard(name, 501, 0), visitBoard(name, 460, 41), s[0], s[1], rnd)); break;
+            case "69": play(Moments.forChange(visitBoard(name, 501, 0), visitBoard(name, 432, 69), s[0], s[1], rnd)); break;
+            case "67": play(Moments.forChange(visitBoard(name, 501, 0), visitBoard(name, 434, 67), s[0], s[1], rnd)); break;
+            case "aim": play(Moments.forChange(visitBoard(name, 501, 0), visitBoard(name, 496, 5), s[0], s[1], rnd)); break;
             default: play(Moments.gameShot(name, s[0], s[1])); break;
         }
     }
 
+    /** A one-player board after a visit, for testing the score jokes. */
+    private static Scoreboard visitBoard(String name, int score, int last) {
+        Scoreboard b = new Scoreboard();
+        Scoreboard.Player p = new Scoreboard.Player(name, score, 0, "", true);
+        p.lastScore = last;
+        p.darts = last == 0 ? 0 : 3;
+        b.players.add(p);
+        return b;
+    }
+
     private void play(List<Moments.Step> steps) {
+        if (steps == null) return;
         int token = ++momentToken;
         playing = true;
         anim.execute(() -> playStep(steps, 0, token));
