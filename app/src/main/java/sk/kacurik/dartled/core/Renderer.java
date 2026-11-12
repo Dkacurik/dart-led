@@ -15,6 +15,7 @@ public final class Renderer {
     private static final int LEGS = 0x40FF40;
     private static final int CHECKOUT = 0xFFE020;
     private static final int MARKER = 0xFFFFFF;
+    private static final int FINISH = 0x40FF40;   // the finishing double
 
     private Renderer() {}
 
@@ -22,6 +23,18 @@ public final class Renderer {
         Frame f = new Frame(w, h);
         List<Scoreboard.Player> ps = sb.players;
         if (ps.isEmpty()) return f;
+
+        // Short panels (e.g. 64x16): when the player at the oche can finish, show only
+        // their score on top and the checkout darts underneath.
+        if (h < 24) {
+            for (int i = 0; i < ps.size(); i++) {
+                Scoreboard.Player p = ps.get(i);
+                if (p.active && !p.checkout.isEmpty()) {
+                    drawCheckout(f, p, i, w, h);
+                    return f;
+                }
+            }
+        }
 
         int maxRows = Math.max(1, h / PixelFont.SMALL.h);
         int n = Math.min(ps.size(), maxRows);
@@ -100,6 +113,44 @@ public final class Renderer {
             String c = fit(small, co, 1, nameRoom);
             small.draw(f, c, markerW, ny + nf.h * ns + 1, 1, CHECKOUT);
         }
+    }
+
+    /** Top row: whose turn + remaining score. Bottom row: the checkout, e.g. "T20 T13 D16". */
+    private static void drawCheckout(Frame f, Scoreboard.Player p, int index, int w, int h) {
+        PixelFont big = PixelFont.BIG;
+        PixelFont small = PixelFont.SMALL;
+        int rowH = h / 2;
+
+        // Row 1
+        String score = Integer.toString(p.score);
+        int scoreW = big.width(score, 1);
+        int scoreX = w - 1 - scoreW;
+        int y1 = (rowH - big.h) / 2;
+        f.fillRect(0, y1, 1, big.h, MARKER);
+        big.draw(f, score, scoreX, y1, 1, PLAYER_COLORS[index % PLAYER_COLORS.length]);
+        String name = fit(big, ScreenParser.plain(p.name), 1, scoreX - 2 - 3);
+        big.draw(f, name, 2, y1, 1, NAME);
+
+        // Row 2: one group per dart, biggest font + widest gap that fits.
+        String[] darts = p.checkout.trim().toUpperCase().split("\\s+");
+        PixelFont[] fonts = {big, big, big, small, small};
+        int[] gaps = {5, 4, 3, 4, 2};
+        for (int k = 0; k < fonts.length; k++) {
+            PixelFont font = fonts[k];
+            int total = gaps[k] * (darts.length - 1);
+            for (String d : darts) total += font.width(d, 1);
+            if (total > w) continue;
+            int x = (w - total) / 2;
+            int y = rowH + (h - rowH - font.h + 1) / 2;
+            for (int i = 0; i < darts.length; i++) {
+                int color = i == darts.length - 1 ? FINISH : CHECKOUT;
+                font.draw(f, darts[i], x, y, 1, color);
+                x += font.width(darts[i], 1) + gaps[k];
+            }
+            return;
+        }
+        String s = fit(small, p.checkout.toUpperCase(), 1, w);
+        small.draw(f, s, 0, rowH + (h - rowH - small.h + 1) / 2, 1, CHECKOUT);
     }
 
     private static String fit(PixelFont font, String s, int scale, int room) {
