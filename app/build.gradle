@@ -1,0 +1,31 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'sk.kacurik.dartled'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'sk.kacurik.dartled'
+        minSdk 26
+        targetSdk 34
+        versionCode Integer.parseInt(System.getenv('GITHUB_RUN_NUMBER') ?: '1')
+        versionName "1.0.${System.getenv('GITHUB_RUN_NUMBER') ?: '0'}"
+    }
+
+    // Fixed key so each new build installs as an update over the previous one.
+    signingConfigs {
+        debug {
+            storeFile file('dartled.keystore')
+            storePassword 'dartled'
+            keyAlias 'dartled'
+            keyPassword 'dartled'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}

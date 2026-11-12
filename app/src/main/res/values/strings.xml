@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Dart LED</string>
+    <string name="a11y_description">Reads player names and remaining scores from the DartCounter app and shows them on your iPixel LED display. It only reads DartCounter\'s screen and never taps or types anything.</string>
+</resources>
