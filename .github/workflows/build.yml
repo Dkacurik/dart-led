@@ -19,10 +19,8 @@ jobs:
           java-version: '17'
       - uses: android-actions/setup-android@v3
       - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.9'
       - name: Build
-        run: gradle :app:assembleDebug --no-daemon --stacktrace
+        run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
       - name: Publish download
         env:
           GH_TOKEN: ${{ github.token }}
