@@ -41,7 +41,7 @@ public final class ScreenParser {
         for (int i = 0; i < t.size(); i++) {
             if (isAvgLabel(t.get(i))) avgIdx.add(i);
         }
-        if (avgIdx.isEmpty()) return sb;
+        if (avgIdx.isEmpty()) return parseWinner(t);
 
         String turnName = findTurnName(t);
 
@@ -76,11 +76,9 @@ public final class ScreenParser {
             for (int i = after; i < end; i++) {
                 String s = t.get(i);
                 for (String part : s.split("\\s+")) {
-                    if (CHECKOUT_PART.matcher(part).matches() && !isInt(part)) {
+                    if (isDart(part)) {
                         if (co.length() > 0) co.append(' ');
-                        co.append(part.toUpperCase(Locale.ROOT));
-                    } else if (isInt(part) && co.length() > 0) {
-                        co.append(' ').append(part); // e.g. "T20 20 D10"
+                        co.append(part.toUpperCase(Locale.ROOT)); // "T20", "D16", "BULL", or a single like "16"
                     }
                 }
             }
@@ -103,6 +101,46 @@ public final class ScreenParser {
             sb.players.addAll(marked);
         }
         return sb;
+    }
+
+    /**
+     * DartCounter's end-of-match "STATISTICS" screen: player names and the legs each won
+     * (e.g. "Matej", "2", "1", "Dávid"), followed by stats such as "3-dart average".
+     */
+    static Scoreboard parseWinner(List<String> t) {
+        Scoreboard sb = new Scoreboard();
+        int start = -1;
+        for (int i = 0; i < t.size(); i++) {
+            if (plain(t.get(i)).equals("STATISTICS")) { start = i + 1; break; }
+        }
+        if (start < 0) return sb;
+        List<String> names = new ArrayList<>();
+        List<Integer> legs = new ArrayList<>();
+        for (int i = start; i < t.size(); i++) {
+            String s = t.get(i);
+            String p = plain(s);
+            if (p.startsWith("3-DART") || p.startsWith("3 DART") || p.startsWith("FIRST 9")
+                    || p.startsWith("CHECKOUT") || p.startsWith("REMATCH")) break;
+            if (isInt(s) && s.length() <= 2) {
+                legs.add(Integer.parseInt(s));
+            } else if (isNameLike(s) && !isHeaderWord(p)
+                    && (names.isEmpty() || !names.get(names.size() - 1).equals(s))) {
+                names.add(s);
+            }
+        }
+        if (names.size() < 2 || legs.size() < 2) return sb;
+        int a = legs.get(0), b = legs.get(1);
+        if (a == b) return sb;
+        sb.winner = a > b ? names.get(0) : names.get(1);
+        sb.winnerLegs = Math.max(a, b);
+        sb.loserLegs = Math.min(a, b);
+        return sb;
+    }
+
+    private static boolean isHeaderWord(String p) {
+        return p.startsWith("STRAIGHT") || p.startsWith("DOUBLE") || p.startsWith("MASTER")
+                || p.startsWith("SINGLE") || p.equals("CLOSE") || p.equals("STATISTICS")
+                || p.startsWith("VIEW DETAILS") || p.contains(" IN") || p.contains(" OUT");
     }
 
     /** After "3-dart avg." of the previous card, skip its value, "Last score" x, "Darts thrown" y. */
@@ -133,6 +171,17 @@ public final class ScreenParser {
             if (k > 0 && p.contains("TURN")) return p.substring(0, k).trim();
         }
         return null;
+    }
+
+    /** One dart of a checkout: T1-T20, D1-D20, S1-S20, 1-20, 25, 50, BULL. */
+    static boolean isDart(String part) {
+        if (!CHECKOUT_PART.matcher(part).matches()) return false;
+        String u = part.toUpperCase(Locale.ROOT);
+        if (u.startsWith("BULL")) return true;
+        String digits = u.replaceAll("^[TDS]", "");
+        int v = Integer.parseInt(digits);
+        if (u.equals(digits)) return (v >= 1 && v <= 20) || v == 25 || v == 50;
+        return v >= 1 && v <= 20 || (v == 25 && !u.startsWith("T"));
     }
 
     static boolean isAvgLabel(String s) {

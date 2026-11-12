@@ -28,13 +28,18 @@ public final class Scoreboard {
 
     public final List<Player> players = new ArrayList<>();
 
+    /** Set on DartCounter's end-of-match screen: who won and the final legs, e.g. 2 and 1. */
+    public String winner;
+    public int winnerLegs, loserLegs;
+
     public boolean isEmpty() {
-        return players.isEmpty();
+        return players.isEmpty() && winner == null;
     }
 
     /** Identity used to skip re-sending an unchanged picture. */
     public String key() {
         StringBuilder sb = new StringBuilder();
+        if (winner != null) sb.append("W:").append(winner).append(winnerLegs).append('-').append(loserLegs).append(';');
         for (Player p : players) sb.append(p.key()).append(';');
         return sb.toString();
     }
@@ -42,6 +47,7 @@ public final class Scoreboard {
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
+        if (winner != null) sb.append("Winner: ").append(winner).append("  ").append(winnerLegs).append('-').append(loserLegs).append('\n');
         for (Player p : players) {
             sb.append(p.active ? "> " : "  ")
               .append(p.name).append("  ").append(p.score)

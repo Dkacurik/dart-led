@@ -16,12 +16,27 @@ public final class Renderer {
     private static final int CHECKOUT = 0xFFE020;
     private static final int MARKER = 0xFFFFFF;
     private static final int FINISH = 0x40FF40;   // the finishing double
+    private static final int GOLD = 0xFFC814;
+
+    private static final String[] TROPHY = {
+            "#.###.#",
+            "#.###.#",
+            ".#####.",
+            "..###..",
+            "...#...",
+            "..###..",
+            ".#####.",
+    };
 
     private Renderer() {}
 
     public static Frame render(Scoreboard sb, int w, int h) {
         Frame f = new Frame(w, h);
         List<Scoreboard.Player> ps = sb.players;
+        if (sb.winner != null) {
+            drawWinner(f, sb, w, h);
+            return f;
+        }
         if (ps.isEmpty()) return f;
 
         // Short panels (e.g. 64x16): when the player at the oche can finish, show only
@@ -151,6 +166,35 @@ public final class Renderer {
         }
         String s = fit(small, p.checkout.toUpperCase(), 1, w);
         small.draw(f, s, 0, rowH + (h - rowH - small.h + 1) / 2, 1, CHECKOUT);
+    }
+
+    /** End of match: trophy + winner's name, and "WINS 2-1" underneath. */
+    private static void drawWinner(Frame f, Scoreboard sb, int w, int h) {
+        PixelFont big = PixelFont.BIG;
+        String result = "WINS " + sb.winnerLegs + "-" + sb.loserLegs;
+        int trophyW = TROPHY[0].length();
+
+        // Biggest scale where both lines fit.
+        int s = 1;
+        for (int k = 4; k >= 1; k--) {
+            if (big.h * k * 2 + k <= h && big.width(result, k) <= w && (trophyW + 2) * k + big.width("ABC", k) <= w) { s = k; break; }
+        }
+        int lineH = big.h * s;
+        int gap = Math.max(1, (h - 2 * lineH) / 3);
+        int y1 = gap;
+        int y2 = h - gap - lineH;
+        if (h < 2 * lineH + 2) { y1 = 0; y2 = h - lineH; }
+
+        String name = fit(big, ScreenParser.plain(sb.winner), s, w - (trophyW + 2) * s);
+        int total = (trophyW + 2) * s + big.width(name, s);
+        int x = Math.max(0, (w - total) / 2);
+        for (int ty = 0; ty < TROPHY.length; ty++) {
+            for (int tx = 0; tx < trophyW; tx++) {
+                if (TROPHY[ty].charAt(tx) == '#') f.fillRect(x + tx * s, y1 + ty * s, s, s, GOLD);
+            }
+        }
+        big.draw(f, name, x + (trophyW + 2) * s, y1, s, GOLD);
+        big.draw(f, result, (w - big.width(result, s)) / 2, y2, s, NAME);
     }
 
     private static String fit(PixelFont font, String s, int scale, int room) {
