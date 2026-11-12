@@ -129,7 +129,7 @@ public final class MainActivity extends Activity {
         tests.setOrientation(LinearLayout.HORIZONTAL);
         col.addView(tests);
         String[][] kinds = {{"180", "180"}, {"Ton+", "ton"}, {"26", "26"}, {"Bust", "bust"}, {"No score", "noscore"}, {"Game shot", "game"}};
-        String[][] jokeKinds = {{"45", "45"}, {"41", "41"}, {"69", "69"}, {"67", "67"}, {"Under 10", "aim"}};
+        String[][] jokeKinds = {{"45", "45"}, {"41", "41"}, {"69", "69"}, {"67", "67"}, {"Under 10", "aim"}, {"Robin Hood", "robin"}, {"Shanghai", "shanghai"}};
         for (String[] k : kinds) {
             Button b2 = new Button(this);
             b2.setText(k[0]);

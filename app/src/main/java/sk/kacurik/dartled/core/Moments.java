@@ -112,6 +112,25 @@ public final class Moments {
             {"SIX", "SEVEN..."},
     };
 
+    /** Three darts in the same bed. */
+    static final String[][] SAME_BED = {
+            {"ROBIN", "HOOD!"},
+            {"SAME", "BED!"},
+            {"CROWDED", "BED!"},
+            {"NO ROOM", "IN BED!"},
+            {"TRIPLETS!", ""},
+            {"COSY IN", "THERE!"},
+            {"BUNK", "BEDS!"},
+            {"VSETKY", "SPOLU!"},
+    };
+
+    /** Single, double and treble of the same number. */
+    static final String[][] SHANGHAI = {
+            {"SHANGHAI!", ""},
+            {"S D T", "SHANGHAI!"},
+            {"FULL", "HOUSE!"},
+    };
+
     private static int lastJoke = -1;
     private static final java.util.Map<Integer, Integer> lastPick = new java.util.HashMap<>();
 
@@ -156,18 +175,78 @@ public final class Moments {
             if (bust) return bust(b.name, w, h);
             if (visit == 0 && b.score == a.score) return noScore(b.name, w, h);
             if (visit == 180) return oneEighty(w, h);
+
+            // Dart-by-dart jokes, when we saw the darts being entered.
+            List<String> darts = visitDarts(a, before, visit);
+            boolean dartsKnown = darts != null;
+            if (dartsKnown) {
+                if (sameBed(darts)) return scoreJoke(visit, SAME_BED, GOLD, GREEN, rnd, w, h);
+                if (shanghai(darts)) return scoreJoke(visit, SHANGHAI, RED, GOLD, rnd, w, h);
+                if (isVisit(darts, "S20", "S20", "S5")) return scoreJoke(45, FORTY_FIVE, CYAN, PINK, rnd, w, h);
+                if (isVisit(darts, "S20", "S20", "S1")) return scoreJoke(41, FORTY_ONE, CYAN, PINK, rnd, w, h);
+            }
             // Under 10 while still far from a finish (more than 50 left before the visit).
             if (visit >= 1 && visit <= 9 && a.score > 50) {
                 return scoreJoke(visit, new String[][]{{"AIM?", "WHAT AIM?"}}, CYAN, PINK, rnd, w, h);
             }
             if (visit == 26) return twentySix(rnd, w, h);
-            if (visit == 45) return scoreJoke(45, FORTY_FIVE, CYAN, PINK, rnd, w, h);
-            if (visit == 41) return scoreJoke(41, FORTY_ONE, CYAN, PINK, rnd, w, h);
+            if (visit == 45 && !dartsKnown) return scoreJoke(45, FORTY_FIVE, CYAN, PINK, rnd, w, h);
+            if (visit == 41 && !dartsKnown) return scoreJoke(41, FORTY_ONE, CYAN, PINK, rnd, w, h);
             if (visit == 69) return scoreJoke(69, SIXTY_NINE, PINK, GOLD, rnd, w, h);
             if (visit == 67) return sixSeven(rnd, w, h);
             if (visit >= 100 && visit < 180) return ton(b.name, visit, w, h);
         }
         return null;
+    }
+
+    /**
+     * The three darts of the visit that was just submitted, from the input bar seen just
+     * before. If the last dart wasn't seen, it's worked out from the visit total.
+     */
+    static List<String> visitDarts(Scoreboard.Player a, Scoreboard before, int visit) {
+        if (!a.active || before.entered.isEmpty()) return null;
+        List<String> d = new ArrayList<>(before.entered);
+        int sum = 0;
+        for (String x : d) {
+            int v = ScreenParser.dartValue(x);
+            if (v < 0) return null;
+            sum += v;
+        }
+        if (d.size() == 3) return sum == visit ? d : null;
+        int rest = visit - sum;
+        if (d.size() == 2 && rest >= 0 && rest <= 20) {
+            d.add(rest == 0 ? "MISS" : "S" + rest);
+            return d;
+        }
+        return null;
+    }
+
+    static boolean sameBed(List<String> d) {
+        return d.size() == 3 && d.get(0).equals(d.get(1)) && d.get(1).equals(d.get(2))
+                && ScreenParser.dartValue(d.get(0)) > 0;
+    }
+
+    /** One single, one double and one treble of the same number (in any order). */
+    static boolean shanghai(List<String> d) {
+        if (d.size() != 3) return false;
+        java.util.Set<Character> kinds = new java.util.HashSet<>();
+        String number = null;
+        for (String x : d) {
+            if (!x.matches("^[SDT]\\d{1,2}$")) return false;
+            kinds.add(x.charAt(0));
+            String n = x.substring(1);
+            if (number == null) number = n;
+            else if (!number.equals(n)) return false;
+        }
+        return kinds.size() == 3;
+    }
+
+    /** True if the darts are exactly these three, in any order. */
+    static boolean isVisit(List<String> d, String... want) {
+        List<String> a = new ArrayList<>(d), b = new ArrayList<>(java.util.Arrays.asList(want));
+        java.util.Collections.sort(a);
+        java.util.Collections.sort(b);
+        return a.equals(b);
     }
 
     // ---------------------------------------------------------------- animations

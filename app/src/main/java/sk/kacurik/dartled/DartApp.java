@@ -218,6 +218,8 @@ public final class DartApp extends Application {
             case "69": play(Moments.forChange(visitBoard(name, 501, 0), visitBoard(name, 432, 69), s[0], s[1], rnd)); break;
             case "67": play(Moments.forChange(visitBoard(name, 501, 0), visitBoard(name, 434, 67), s[0], s[1], rnd)); break;
             case "aim": play(Moments.forChange(visitBoard(name, 501, 0), visitBoard(name, 496, 5), s[0], s[1], rnd)); break;
+            case "robin": play(Moments.forChange(entering(visitBoard(name, 501, 0), "S19", "S19", "S19"), visitBoard(name, 444, 57), s[0], s[1], rnd)); break;
+            case "shanghai": play(Moments.forChange(entering(visitBoard(name, 501, 0), "S20", "D20", "T20"), visitBoard(name, 381, 120), s[0], s[1], rnd)); break;
             default: play(Moments.gameShot(name, s[0], s[1])); break;
         }
     }
@@ -229,6 +231,11 @@ public final class DartApp extends Application {
         p.lastScore = last;
         p.darts = last == 0 ? 0 : 3;
         b.players.add(p);
+        return b;
+    }
+
+    private static Scoreboard entering(Scoreboard b, String... darts) {
+        for (String d : darts) b.entered.add(d);
         return b;
     }
 

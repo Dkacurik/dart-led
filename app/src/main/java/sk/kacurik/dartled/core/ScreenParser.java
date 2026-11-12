@@ -123,6 +123,7 @@ public final class ScreenParser {
         for (String tok : t) {
             if (isMprLabel(plain(tok))) { parseCricketMarks(t, sb); break; }
         }
+        parseEnteredDarts(t, avgIdx.get(avgIdx.size() - 1), sb);
         return sb;
     }
 
@@ -218,6 +219,46 @@ public final class ScreenParser {
     }
 
     static final String[] CRICKET_TARGETS = {"20", "19", "18", "17", "16", "15", "BULL"};
+
+    private static final Pattern DART_LABEL = Pattern.compile(
+            "^(?:[SDT]\\d{1,2}|[SD]?BULL|[SD]25|OUTER|MISS|M|S0)$", Pattern.CASE_INSENSITIVE);
+
+    /**
+     * The darts of the visit being entered, shown as chips in DartCounter's input bar
+     * (e.g. "60" "T20", "25" "S25"). They come after the player cards and the
+     * "...'S TURN TO THROW!" line, and before the keypad.
+     */
+    static void parseEnteredDarts(List<String> t, int lastAvg, Scoreboard sb) {
+        int start = lastAvg + 1;
+        for (int i = 0; i < t.size(); i++) {
+            if (plain(t.get(i)).contains("TURN TO THROW")) { start = Math.max(start, i + 1); break; }
+        }
+        for (int i = start; i < t.size(); i++) {
+            String s = strip(t.get(i)).trim();
+            String p = plain(s);
+            if (p.equals("SINGLE") || p.equals("SUBMIT") || TARGET_BUTTON.matcher(s).matches()) break;
+            if (DART_LABEL.matcher(s).matches()) sb.entered.add(p);
+            if (sb.entered.size() == 3) break;
+        }
+    }
+
+    /** Points for one dart label: T20 = 60, D16 = 32, S5 = 5, BULL = 50, S25 = 25, MISS = 0. */
+    public static int dartValue(String label) {
+        String p = plain(label);
+        if (p.equals("MISS") || p.equals("M") || p.equals("S0")) return 0;
+        if (p.equals("BULL") || p.equals("DBULL") || p.equals("D25")) return 50;
+        if (p.equals("SBULL") || p.equals("S25") || p.equals("OUTER")) return 25;
+        try {
+            int n = Integer.parseInt(p.substring(1));
+            switch (p.charAt(0)) {
+                case 'T': return 3 * n;
+                case 'D': return 2 * n;
+                default: return n;
+            }
+        } catch (Exception e) {
+            return -1;
+        }
+    }
 
     /** Separator between a token and its on-screen position ("x,y"). */
     public static final char POS = '\u0001';

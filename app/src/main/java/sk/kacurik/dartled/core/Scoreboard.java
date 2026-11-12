@@ -38,6 +38,9 @@ public final class Scoreboard {
 
     /** Cricket: raw mark icons per player (0 = first card, 1 = second) for 20,19,18,17,16,15,BULL. */
     public boolean cricket;
+
+    /** Darts of the visit currently being entered, e.g. ["T20", "S20"]. */
+    public final List<String> entered = new ArrayList<>();
     public final String[][] markIcons = new String[2][7];
     public int winnerLegs, loserLegs;
 
@@ -51,6 +54,7 @@ public final class Scoreboard {
         if (winner != null) sb.append("W:").append(winner).append(winnerLegs).append('-').append(loserLegs).append(';');
         for (Player p : players) sb.append(p.key()).append(';');
         if (cricket) for (String[] row : markIcons) sb.append(java.util.Arrays.toString(row));
+        sb.append("E:").append(entered);
         return sb.toString();
     }
 
@@ -65,6 +69,7 @@ public final class Scoreboard {
             if (!p.checkout.isEmpty()) sb.append("  (").append(p.checkout).append(')');
             sb.append('\n');
         }
+        if (!entered.isEmpty()) sb.append("\nentering: ").append(String.join(" ", entered));
         if (cricket) {
             String[] names = {"20", "19", "18", "17", "16", "15", "B"};
             sb.append("\ncricket marks:");
