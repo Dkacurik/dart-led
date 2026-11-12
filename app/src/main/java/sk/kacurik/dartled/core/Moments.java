@@ -124,6 +124,11 @@ public final class Moments {
             {"VSETKY", "SPOLU!"},
     };
 
+    /** 1, 1, 1: right next to the 20... */
+    static final String[][] ONE_ONE_ONE = {
+            {"GOOD", "GROUPING!"},
+    };
+
     /** Single, double and treble of the same number. */
     static final String[][] SHANGHAI = {
             {"SHANGHAI!", ""},
@@ -205,6 +210,7 @@ public final class Moments {
             List<String> darts = visitDarts(a, before, visit);
             boolean dartsKnown = darts != null;
             if (dartsKnown) {
+                if (isVisit(darts, "S1", "S1", "S1")) return scoreJoke(3, ONE_ONE_ONE, CYAN, GOLD, rnd, w, h);
                 if (sameBed(darts)) return scoreJoke(visit, SAME_BED, GOLD, GREEN, rnd, w, h);
                 if (shanghai(darts)) return scoreJoke(visit, SHANGHAI, RED, GOLD, rnd, w, h);
                 if (isVisit(darts, "S20", "S20", "S5")) return scoreJoke(45, FORTY_FIVE, CYAN, PINK, rnd, w, h);

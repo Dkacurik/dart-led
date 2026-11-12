@@ -130,7 +130,7 @@ public final class MainActivity extends Activity {
         col.addView(tests);
         String[][] kinds = {{"180", "180"}, {"Ton+", "ton"}, {"26", "26"}, {"Bust", "bust"}, {"No score", "noscore"}, {"Game shot", "game"}};
         String[][] bigKinds = {{"High finish", "high"}, {"170", "fish"}, {"Game on", "gameon"}, {"Bull-up", "bull"}};
-        String[][] jokeKinds = {{"45", "45"}, {"41", "41"}, {"69", "69"}, {"67", "67"}, {"Under 10", "aim"}, {"Robin Hood", "robin"}, {"Shanghai", "shanghai"}};
+        String[][] jokeKinds = {{"45", "45"}, {"41", "41"}, {"69", "69"}, {"67", "67"}, {"Under 10", "aim"}, {"1 1 1", "111"}, {"Robin Hood", "robin"}, {"Shanghai", "shanghai"}};
         for (String[] k : kinds) {
             Button b2 = new Button(this);
             b2.setText(k[0]);

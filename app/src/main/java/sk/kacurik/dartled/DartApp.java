@@ -239,6 +239,7 @@ public final class DartApp extends Application {
             case "gameon": play(Moments.gameOn(Scoreboard.demo(), s[0], s[1])); break;
             case "bull": play(Moments.throwsFirst(name, s[0], s[1])); break;
             case "aim": play(Moments.forChange(visitBoard(name, 501, 0), visitBoard(name, 496, 5), s[0], s[1], rnd)); break;
+            case "111": play(Moments.forChange(entering(visitBoard(name, 501, 0), "S1", "S1", "S1"), visitBoard(name, 498, 3), s[0], s[1], rnd)); break;
             case "robin": play(Moments.forChange(entering(visitBoard(name, 501, 0), "S19", "S19", "S19"), visitBoard(name, 444, 57), s[0], s[1], rnd)); break;
             case "shanghai": play(Moments.forChange(entering(visitBoard(name, 501, 0), "S20", "D20", "T20"), visitBoard(name, 381, 120), s[0], s[1], rnd)); break;
             default: play(Moments.gameShot(name, s[0], s[1])); break;
