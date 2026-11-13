@@ -171,6 +171,33 @@ public final class MainActivity extends Activity {
         });
         button(col, "Show clock now", v -> app.showIdleNow());
 
+        // Narrator
+        header(col, "6. Narrator");
+        text(col, "Speaks the big moments, jokes and \"you require\" through the tablet speaker. "
+                + "If DartCounter's own caller is on, you may want to turn \"Call every score\" off.", 13);
+        Button narBtn = button(col, "", null);
+        narBtn.setText(app.narratorOn() ? "Narrator: ON" : "Narrator: OFF");
+        narBtn.setOnClickListener(v -> {
+            app.setNarratorOn(!app.narratorOn());
+            narBtn.setText(app.narratorOn() ? "Narrator: ON" : "Narrator: OFF");
+        });
+        Button reqBtn = button(col, "", null);
+        reqBtn.setText(app.callRequire() ? "Say \"you require 40\": ON" : "Say \"you require 40\": OFF");
+        reqBtn.setOnClickListener(v -> {
+            app.setCallRequire(!app.callRequire());
+            reqBtn.setText(app.callRequire() ? "Say \"you require 40\": ON" : "Say \"you require 40\": OFF");
+        });
+        Button scoresBtn = button(col, "", null);
+        scoresBtn.setText(app.callScores() ? "Call every score: ON" : "Call every score: OFF");
+        scoresBtn.setOnClickListener(v -> {
+            app.setCallScores(!app.callScores());
+            scoresBtn.setText(app.callScores() ? "Call every score: ON" : "Call every score: OFF");
+        });
+        button(col, "Test voice", v -> {
+            if (!app.voiceReady()) toast("The voice isn't ready yet – check Settings › Text-to-speech");
+            app.testVoice();
+        });
+
         // Troubleshooting
         header(col, "If scores don't appear");
         text(col, "Start a match in DartCounter, then come back here. Below is what Dart LED "

@@ -14,11 +14,73 @@ public final class Moments {
     public static final class Step {
         public final Frame frame;
         public final int ms;
+        /** What the narrator says when this step starts (null = nothing). */
+        public final String say;
+        public final boolean slovak;
 
         Step(Frame frame, int ms) {
+            this(frame, ms, null, false);
+        }
+
+        Step(Frame frame, int ms, String say, boolean slovak) {
             this.frame = frame;
             this.ms = ms;
+            this.say = say;
+            this.slovak = slovak;
         }
+    }
+
+    /** Puts a spoken line on the first step of an animation. */
+    static List<Step> withSay(List<Step> s, String say, boolean slovak) {
+        if (s.isEmpty() || say == null) return s;
+        Step first = s.get(0);
+        s.set(0, new Step(first.frame, first.ms, say, slovak));
+        return s;
+    }
+
+    /** Spoken versions of jokes that a voice would read badly from the display text. */
+    private static final java.util.Map<String, String> SPOKEN = new java.util.HashMap<>();
+    /** Jokes in Slovak (read with a Slovak voice, with proper accents). */
+    private static final java.util.Map<String, String> SLOVAK = new java.util.HashMap<>();
+
+    static {
+        SPOKEN.put("6-7! 6-7!", "Six seven! Six seven!");
+        SPOKEN.put("IT'S 6-7 BRO!", "It's six seven, bro!");
+        SPOKEN.put("67?! SIX SEVEN", "Sixty seven? Six seven!");
+        SPOKEN.put("SIIIX SEVENNN!", "Siiix, sevennnn!");
+        SPOKEN.put("S D T SHANGHAI!", "Single, double, treble. Shanghai!");
+        SPOKEN.put("20 20 5 CLASSIC!", "Twenty, twenty, five. Classic!");
+        SPOKEN.put("20 20 1 CLASSIC!", "Twenty, twenty, one. Classic!");
+        SPOKEN.put("20 1 5 SO CLOSE!", "Twenty, one, five. So close!");
+        SPOKEN.put("NICE.", "Nice.");
+        SPOKEN.put("HEHE 69", "Hehe. Sixty nine.");
+        SPOKEN.put("69 NICE!", "Sixty nine. Nice!");
+        SPOKEN.put("OUCH! 26...", "Ouch! Twenty six.");
+        SLOVAK.put("RANAJKY PODANE!", "Raňajky podané!");
+        SLOVAK.put("ZASA VLAVO!", "Zasa vľavo!");
+        SLOVAK.put("ZASA VPRAVO!", "Zasa vpravo!");
+        SLOVAK.put("DOBRE RANO!", "Dobré ráno!");
+        SLOVAK.put("PRAZENICA HOTOVA!", "Praženica hotová!");
+        SLOVAK.put("CHLIEB S MASLOM", "Chlieb s maslom.");
+        SLOVAK.put("KAVICKU? POTREBUJES", "Kávičku? Potrebuješ!");
+        SLOVAK.put("ZASA 26?!", "Zasa dvadsaťšesť?!");
+        SLOVAK.put("VSETKY SPOLU!", "Všetky spolu!");
+        SLOVAK.put("NAJS!", "Najs!");
+    }
+
+    /** "BED & BREAKFAST" -> "Bed and breakfast" (all-caps text can be spelled out by voices). */
+    static String spoken(String display) {
+        String t = display.trim();
+        if (SPOKEN.containsKey(t)) return SPOKEN.get(t);
+        t = t.replace("&", "and").toLowerCase(java.util.Locale.ROOT);
+        StringBuilder b = new StringBuilder(t);
+        boolean cap = true;
+        for (int i = 0; i < b.length(); i++) {
+            char c = b.charAt(i);
+            if (cap && Character.isLetter(c)) { b.setCharAt(i, Character.toUpperCase(c)); cap = false; }
+            else if (c == '.' || c == '?' || c == '!') cap = true;
+        }
+        return b.toString();
     }
 
     private static final int RED = 0xFF3020;
@@ -339,7 +401,7 @@ public final class Moments {
         }
         s.add(new Step(lines(w, h, "ONE-EIGHTY", GOLD, "MAXIMUM!", RED), 2500));
         s.add(new Step(big(w, h, "180!", GOLD), 1200));
-        return s;
+        return withSay(s, "One hundred and eighty!", false);
     }
 
     public static List<Step> ton(String name, int score, int w, int h) {
@@ -350,7 +412,7 @@ public final class Moments {
             s.add(new Step(lines(w, h, n, WHITE, "", GOLD), 150));
         }
         s.add(new Step(lines(w, h, n, WHITE, score + "!", GOLD), 1500));
-        return s;
+        return withSay(s, score + "!", false);
     }
 
     public static List<Step> bust(String name, int w, int h) {
@@ -360,7 +422,7 @@ public final class Moments {
             s.add(new Step(new Frame(w, h), 150));
         }
         s.add(new Step(lines(w, h, Renderer.shortName(name), WHITE, "BUST!", RED), 1500));
-        return s;
+        return withSay(s, "Bust!", false);
     }
 
     public static List<Step> noScore(String name, int w, int h) {
@@ -370,7 +432,7 @@ public final class Moments {
             s.add(new Step(new Frame(w, h), 150));
         }
         s.add(new Step(lines(w, h, Renderer.shortName(name), WHITE, "NO SCORE", GOLD), 1500));
-        return s;
+        return withSay(s, "No score.", false);
     }
 
     /** Checkout of 100 or more; 170 is the big fish. */
@@ -385,7 +447,7 @@ public final class Moments {
         int[] colors = {GOLD, RED, GREEN, CYAN};
         for (int i = 0; i < 4; i++) s.add(new Step(big(w, h, checkout + "!", colors[i]), 300));
         s.add(new Step(big(w, h, checkout + "!", GOLD), 1200));
-        return s;
+        return withSay(s, fish ? "The big fish! One hundred and seventy!" : "What a finish! " + checkout + "!", false);
     }
 
     /** New match: GAME ON!, then who throws first. */
@@ -400,7 +462,7 @@ public final class Moments {
         }
         s.add(new Step(big(w, h, "GAME ON!", GOLD), 900));
         s.add(new Step(lines(w, h, Renderer.shortName(first), WHITE, "TO THROW", GOLD), 2000));
-        return s;
+        return withSay(s, "Game on! " + first + " to throw first.", false);
     }
 
     /** Bull-up decided. */
@@ -412,7 +474,7 @@ public final class Moments {
             s.add(new Step(lines(w, h, n, GOLD, "", WHITE), 150));
         }
         s.add(new Step(lines(w, h, n, GOLD, "THROWS 1ST", WHITE), 2000));
-        return s;
+        return withSay(s, name + " throws first.", false);
     }
 
     public static List<Step> gameShot(String name, int w, int h) {
@@ -422,7 +484,7 @@ public final class Moments {
             s.add(new Step(lines(w, h, "GAME SHOT!", i % 2 == 0 ? GOLD : WHITE, n, i % 2 == 0 ? WHITE : GOLD), 350));
         }
         s.add(new Step(lines(w, h, "GAME SHOT!", GOLD, n, WHITE), 2500));
-        return s;
+        return withSay(s, "Game shot, and the leg, " + name + "!", false);
     }
 
     public static List<Step> twentySix(Random rnd, int w, int h) {
@@ -436,8 +498,15 @@ public final class Moments {
             s.add(new Step(new Frame(w, h), 120));
         }
         s.add(new Step(big(w, h, "26", CYAN), 500));
-        s.add(new Step(lines(w, h, msg[0], CYAN, msg[1], PINK), 3500));
+        s.add(jokeStep(lines(w, h, msg[0], CYAN, msg[1], PINK), msg));
         return s;
+    }
+
+    /** The joke frame, with the joke read out (Slovak jokes with a Slovak voice). */
+    private static Step jokeStep(Frame f, String[] msg) {
+        String key = (msg[0] + " " + msg[1]).trim();
+        if (SLOVAK.containsKey(key)) return new Step(f, 3500, SLOVAK.get(key), true);
+        return new Step(f, 3500, spoken(key), false);
     }
 
     /** Flashes the score, then a random joke for it (never the same twice in a row). */
@@ -454,7 +523,7 @@ public final class Moments {
             s.add(new Step(new Frame(w, h), 120));
         }
         s.add(new Step(big(w, h, n, c1), 500));
-        s.add(new Step(msg[1].isEmpty() ? big(w, h, msg[0], c2) : lines(w, h, msg[0], c1, msg[1], c2), 3500));
+        s.add(jokeStep(msg[1].isEmpty() ? big(w, h, msg[0], c2) : lines(w, h, msg[0], c1, msg[1], c2), msg));
         return s;
     }
 
@@ -466,7 +535,7 @@ public final class Moments {
             s.add(new Step(big(w, h, "7", PINK), 280));
         }
         s.addAll(scoreJoke(67, SIXTY_SEVEN, GOLD, PINK, rnd, w, h).subList(5, 6)); // just the joke frame
-        return s;
+        return withSay(s, "Six... seven!", false);
     }
 
     /** Blinks the winner screen a few times; the app then keeps it on. */
@@ -477,7 +546,7 @@ public final class Moments {
             s.add(new Step(new Frame(w, h), 150));
         }
         s.add(new Step(Renderer.render(sb, w, h), 500));
-        return s;
+        return withSay(s, "Game shot, and the match, " + sb.winner + "!", false);
     }
 
     // ---------------------------------------------------------------- drawing helpers

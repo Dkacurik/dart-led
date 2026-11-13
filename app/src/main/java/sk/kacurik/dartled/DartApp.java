@@ -26,6 +26,7 @@ public final class DartApp extends Application {
 
     private SharedPreferences prefs;
     private LedLink link;
+    private Narrator narrator;
 
     private volatile Scoreboard board = new Scoreboard();
     private volatile String boardKey = "";
@@ -61,6 +62,7 @@ public final class DartApp extends Application {
         instance = this;
         prefs = getSharedPreferences("dartled", MODE_PRIVATE);
         link = new LedLink(this);
+        narrator = new Narrator(this);
         link.setAddress(prefs.getString("address", null));
         anim.scheduleAtFixedRate(this::tick, 1, 1, TimeUnit.SECONDS);
     }
@@ -201,6 +203,7 @@ public final class DartApp extends Application {
             return;
         }
         int[] visit = Moments.lastVisit(before, sb);
+        if (narratorOn()) speakTurn(before, sb, visit);
         if (visit != null && visit[1] > 0) {
             flashIdx = visit[0];
             flashText = "+" + visit[1];
@@ -210,6 +213,35 @@ public final class DartApp extends Application {
             }, 3600, TimeUnit.MILLISECONDS);
         }
         if (!playing) redraw();
+    }
+
+    // ------------------------------------------------------------------ narrator
+
+    public boolean narratorOn() { return prefs.getBoolean("narrator", true); }
+    public void setNarratorOn(boolean on) { prefs.edit().putBoolean("narrator", on).apply(); if (!on) narrator.stop(); }
+    public boolean callScores() { return prefs.getBoolean("callScores", false); }
+    public void setCallScores(boolean on) { prefs.edit().putBoolean("callScores", on).apply(); }
+    public boolean callRequire() { return prefs.getBoolean("callRequire", true); }
+    public void setCallRequire(boolean on) { prefs.edit().putBoolean("callRequire", on).apply(); }
+
+    public void testVoice() {
+        narrator.say("Game on! Dávid to throw first. One hundred and eighty!", false, true);
+        narrator.say("Raňajky podané!", true, false);
+    }
+
+    public boolean voiceReady() { return narrator.isReady(); }
+
+    /** Ordinary visit (no big moment): optionally call the score, and "you require" on a finish. */
+    private void speakTurn(Scoreboard before, Scoreboard now, int[] visit) {
+        if (visit != null && callScores()) narrator.say(visit[1] == 0 ? "No score." : Integer.toString(visit[1]), false, true);
+        if (!callRequire() || now.cricket || before.players.size() != now.players.size()) return;
+        for (int i = 0; i < now.players.size(); i++) {
+            Scoreboard.Player p = now.players.get(i);
+            boolean wasActive = before.players.get(i).active;
+            if (p.active && !wasActive && !p.checkout.isEmpty() && p.score <= 170) {
+                narrator.say(p.name + ", you require " + p.score + ".", false, false);
+            }
+        }
     }
 
     public boolean momentsOn() {
@@ -276,6 +308,7 @@ public final class DartApp extends Application {
             return;
         }
         Moments.Step st = steps.get(i);
+        if (st.say != null && narratorOn()) narrator.say(st.say, st.slovak, i == 0);
         frame = st.frame;
         link.submitFrame(st.frame);
         anim.schedule(() -> playStep(steps, i + 1, token), st.ms, TimeUnit.MILLISECONDS);
