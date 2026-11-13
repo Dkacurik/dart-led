@@ -187,6 +187,34 @@ public final class MainActivity extends Activity {
             app.setRecordedVoice(!app.recordedVoice());
             voiceBtn.setText(app.recordedVoice() ? "Voice: Ryan (recorded)" : "Voice: tablet's own voice");
         });
+        String[][] quipModes = {{"mix", "Hlášky: English + Slovak"}, {"en", "Hlášky: English only"},
+                {"sk", "Hlášky: Slovak only"}, {"off", "Hlášky: OFF"}};
+        Button quipBtn = button(col, "", null);
+        Runnable showQuip = () -> {
+            for (String[] q : quipModes) if (q[0].equals(app.quipsMode())) quipBtn.setText(q[1]);
+        };
+        showQuip.run();
+        quipBtn.setOnClickListener(v -> {
+            int i = 0;
+            for (int k = 0; k < quipModes.length; k++) if (quipModes[k][0].equals(app.quipsMode())) i = k;
+            app.setQuipsMode(quipModes[(i + 1) % quipModes.length][0]);
+            showQuip.run();
+        });
+        double[] chances = {0.2, 0.4, 0.7};
+        String[] chanceNames = {"rarely", "sometimes", "often"};
+        Button chanceBtn = button(col, "", null);
+        Runnable showChance = () -> {
+            int k = 0;
+            for (int j = 0; j < chances.length; j++) if (Math.abs(chances[j] - app.quipsChance()) < 0.01) k = j;
+            chanceBtn.setText("Comments after ordinary visits: " + chanceNames[k]);
+        };
+        showChance.run();
+        chanceBtn.setOnClickListener(v -> {
+            int k = 0;
+            for (int j = 0; j < chances.length; j++) if (Math.abs(chances[j] - app.quipsChance()) < 0.01) k = j;
+            app.setQuipsChance(chances[(k + 1) % chances.length]);
+            showChance.run();
+        });
         Button reqBtn = button(col, "", null);
         reqBtn.setText(app.callRequire() ? "Say \"you require 40\": ON" : "Say \"you require 40\": OFF");
         reqBtn.setOnClickListener(v -> {

@@ -33,6 +33,9 @@ public final class Scoreboard {
 
     public final List<Player> players = new ArrayList<>();
 
+    /** Legs needed to win the match ("FIRST TO 2 LEGS" -> 2, "BEST OF 3 LEGS" -> 2), 0 if unknown. */
+    public int legsToWin;
+
     /** Set on DartCounter's end-of-match screen: who won and the final legs, e.g. 2 and 1. */
     public String winner;
 

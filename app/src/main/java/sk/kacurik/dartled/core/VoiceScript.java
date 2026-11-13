@@ -22,6 +22,7 @@ public final class VoiceScript {
     private static final Pattern FINISH = Pattern.compile("^What a finish! (\\d{1,3})!$");
     private static final Pattern LEG = Pattern.compile("^Game shot, and the leg, (.+)!$");
     private static final Pattern MATCH = Pattern.compile("^Game shot, and the match, (.+)!$");
+    private static final Pattern RUNNING = Pattern.compile("^(.+) is running away with it!$");
     private static final Pattern NUMBER = Pattern.compile("^(\\d{1,3})!?$");
 
     private VoiceScript() {}
@@ -42,6 +43,7 @@ public final class VoiceScript {
         else if (t.equals("Bust!")) keys = Arrays.asList("p_bust");
         else if (t.equals("No score.")) keys = Arrays.asList("p_no_score");
         else if (t.equals("Six... seven!")) keys = Arrays.asList("p_six_seven_intro");
+        else if ((m = RUNNING.matcher(t)).matches()) keys = Arrays.asList(name(m.group(1)), "j_is_running_away_with_it");
         else if ((m = THROWS_FIRST.matcher(t)).matches()) keys = Arrays.asList(name(m.group(1)), "p_throws_first");
         else keys = Arrays.asList("j_" + slug(t));
         for (String k : keys) if (!available.contains(k)) return null;

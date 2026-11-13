@@ -128,6 +128,7 @@ public final class ScreenParser {
             if (isMprLabel(plain(tok))) { parseCricketMarks(t, sb); break; }
         }
         parseEnteredDarts(t, avgIdx.get(avgIdx.size() - 1), sb);
+        sb.legsToWin = legsToWin(t);
         return sb;
     }
 
@@ -281,6 +282,21 @@ public final class ScreenParser {
         return p.contains("THROW") || p.contains("BULL") || p.equals("QUIT") || p.contains("START")
                 || p.contains("AGAIN") || p.contains("CONFIRM") || p.contains("MARK") || p.contains("FIRST")
                 || p.equals("MM") || p.contains("DARTS");
+    }
+
+    private static final Pattern FIRST_TO = Pattern.compile("FIRST TO (\\d+) LEGS?");
+    private static final Pattern BEST_OF = Pattern.compile("BEST OF (\\d+) LEGS?");
+
+    /** From the header: "FIRST TO 2 LEGS" -> 2, "CRICKET - BEST OF 3 LEGS" -> 2. */
+    static int legsToWin(List<String> t) {
+        for (String tok : t) {
+            String p = plain(tok);
+            java.util.regex.Matcher m = FIRST_TO.matcher(p);
+            if (m.find()) return Integer.parseInt(m.group(1));
+            m = BEST_OF.matcher(p);
+            if (m.find()) return Integer.parseInt(m.group(1)) / 2 + 1;
+        }
+        return 0;
     }
 
     /** Points for one dart label: T20 = 60, D16 = 32, S5 = 5, BULL = 50, S25 = 25, MISS = 0. */

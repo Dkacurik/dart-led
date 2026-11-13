@@ -13,6 +13,7 @@ import java.util.concurrent.TimeUnit;
 import sk.kacurik.dartled.core.Frame;
 import sk.kacurik.dartled.core.IdleClock;
 import sk.kacurik.dartled.core.Moments;
+import sk.kacurik.dartled.core.Quips;
 import sk.kacurik.dartled.core.Renderer;
 import sk.kacurik.dartled.core.Scoreboard;
 import sk.kacurik.dartled.core.ScreenParser;
@@ -38,6 +39,8 @@ public final class DartApp extends Application {
     // Match-moment animations (180, bust, game shot, 26...)
     private final ScheduledExecutorService anim = Executors.newSingleThreadScheduledExecutor();
     private final Random rnd = new Random();
+    private final Quips quips = new Quips(rnd);
+    private volatile Quips.Quip pendingQuip;   // said after the current animation ends
     private volatile int momentToken;
     private volatile boolean playing;
 
@@ -64,6 +67,8 @@ public final class DartApp extends Application {
         link = new LedLink(this);
         narrator = new Narrator(this);
         narrator.setUseRecordedVoice(recordedVoice());
+        quips.language = quipsMode().equals("off") ? "mix" : quipsMode();
+        quips.chance = quipsChance();
         link.setAddress(prefs.getString("address", null));
         anim.scheduleAtFixedRate(this::tick, 1, 1, TimeUnit.SECONDS);
     }
@@ -199,12 +204,17 @@ public final class DartApp extends Application {
             int[] s = size();
             moment = Moments.forChange(before, sb, s[0], s[1], rnd);
         }
+        boolean talk = narratorOn() && !"off".equals(quipsMode());
+        Quips.Quip quip = talk && legWon(before, sb) ? quips.afterLeg(sb) : null;
         if (moment != null) {
+            pendingQuip = quip;
             play(moment);
             return;
         }
         int[] visit = Moments.lastVisit(before, sb);
         if (narratorOn()) speakTurn(before, sb, visit);
+        if (talk && quip == null) quip = quips.afterVisit(before, sb, System.currentTimeMillis());
+        if (quip != null) narrator.say(quip.text, quip.slovak, false);
         if (visit != null && visit[1] > 0) {
             flashIdx = visit[0];
             flashText = "+" + visit[1];
@@ -222,6 +232,25 @@ public final class DartApp extends Application {
     public void setNarratorOn(boolean on) { prefs.edit().putBoolean("narrator", on).apply(); if (!on) narrator.stop(); }
     public boolean recordedVoice() { return prefs.getBoolean("recordedVoice", true); }
     public void setRecordedVoice(boolean on) { prefs.edit().putBoolean("recordedVoice", on).apply(); narrator.setUseRecordedVoice(on); }
+    /** Hlášky: "mix", "en", "sk" or "off". */
+    public String quipsMode() { return prefs.getString("quips", "mix"); }
+    public void setQuipsMode(String m) {
+        prefs.edit().putString("quips", m).apply();
+        if (!"off".equals(m)) quips.language = m;
+    }
+    public double quipsChance() { return prefs.getFloat("quipsChance", 0.4f); }
+    public void setQuipsChance(double c) { prefs.edit().putFloat("quipsChance", (float) c).apply(); quips.chance = c; }
+
+    /** Someone's legs went up between these two readings of the same match. */
+    private static boolean legWon(Scoreboard before, Scoreboard now) {
+        if (before.players.size() != now.players.size()) return false;
+        for (int i = 0; i < now.players.size(); i++) {
+            if (!before.players.get(i).name.equals(now.players.get(i).name)) return false;
+            if (now.players.get(i).legs > before.players.get(i).legs) return true;
+        }
+        return false;
+    }
+
     public boolean callScores() { return prefs.getBoolean("callScores", false); }
     public void setCallScores(boolean on) { prefs.edit().putBoolean("callScores", on).apply(); }
     public boolean callRequire() { return prefs.getBoolean("callRequire", true); }
@@ -246,6 +275,10 @@ public final class DartApp extends Application {
             boolean wasActive = before.players.get(i).active;
             if (p.active && !wasActive && !p.checkout.isEmpty() && p.score <= 170) {
                 narrator.say(p.name + ", you require " + p.score + ".", false, false);
+                if (!"off".equals(quipsMode())) {
+                    Quips.Quip md = quips.matchDarts(now, p);
+                    if (md != null) narrator.say(md.text, md.slovak, false);
+                }
             }
         }
     }
@@ -309,6 +342,9 @@ public final class DartApp extends Application {
     private void playStep(List<Moments.Step> steps, int i, int token) {
         if (token != momentToken) return;            // a newer moment took over
         if (i >= steps.size()) {
+            Quips.Quip q = pendingQuip;
+            pendingQuip = null;
+            if (q != null && narratorOn()) narrator.say(q.text, q.slovak, false);
             playing = false;
             redraw();                                // back to the scoreboard
             return;
