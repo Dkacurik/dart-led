@@ -63,6 +63,7 @@ public final class DartApp extends Application {
         prefs = getSharedPreferences("dartled", MODE_PRIVATE);
         link = new LedLink(this);
         narrator = new Narrator(this);
+        narrator.setUseRecordedVoice(recordedVoice());
         link.setAddress(prefs.getString("address", null));
         anim.scheduleAtFixedRate(this::tick, 1, 1, TimeUnit.SECONDS);
     }
@@ -219,13 +220,18 @@ public final class DartApp extends Application {
 
     public boolean narratorOn() { return prefs.getBoolean("narrator", true); }
     public void setNarratorOn(boolean on) { prefs.edit().putBoolean("narrator", on).apply(); if (!on) narrator.stop(); }
+    public boolean recordedVoice() { return prefs.getBoolean("recordedVoice", true); }
+    public void setRecordedVoice(boolean on) { prefs.edit().putBoolean("recordedVoice", on).apply(); narrator.setUseRecordedVoice(on); }
     public boolean callScores() { return prefs.getBoolean("callScores", false); }
     public void setCallScores(boolean on) { prefs.edit().putBoolean("callScores", on).apply(); }
     public boolean callRequire() { return prefs.getBoolean("callRequire", true); }
     public void setCallRequire(boolean on) { prefs.edit().putBoolean("callRequire", on).apply(); }
 
     public void testVoice() {
-        narrator.say("Game on! Dávid to throw first. One hundred and eighty!", false, true);
+        narrator.say("Game on! Dávid to throw first.", false, true);
+        narrator.say("One hundred and eighty!", false, false);
+        narrator.say("Dávid, you require 40.", false, false);
+        narrator.say("Bed and breakfast", false, false);
         narrator.say("Raňajky podané!", true, false);
     }
 

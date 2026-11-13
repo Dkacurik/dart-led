@@ -15,12 +15,20 @@ public final class Narrator implements TextToSpeech.OnInitListener {
     private static final Locale SLOVAK = new Locale("sk", "SK");
 
     private final TextToSpeech tts;
+    private final VoicePack pack;
+    private volatile boolean usePack = true;
     private volatile boolean ready;
     private volatile boolean slovakAvailable;
     private int counter;
 
     public Narrator(Context ctx) {
         tts = new TextToSpeech(ctx.getApplicationContext(), this);
+        pack = new VoicePack(ctx);
+    }
+
+    /** Use the recorded "Ryan" clips where possible (otherwise the tablet's own voice). */
+    public void setUseRecordedVoice(boolean on) {
+        usePack = on;
     }
 
     @Override
@@ -32,7 +40,7 @@ public final class Narrator implements TextToSpeech.OnInitListener {
     }
 
     public boolean isReady() {
-        return ready;
+        return ready || (usePack && pack.isAvailable());
     }
 
     /**
@@ -40,12 +48,19 @@ public final class Narrator implements TextToSpeech.OnInitListener {
      *                  false to queue after it.
      */
     public synchronized void say(String text, boolean slovak, boolean interrupt) {
-        if (!ready || text == null || text.trim().isEmpty()) return;
+        if (text == null || text.trim().isEmpty()) return;
+        if (usePack && !slovak && pack.play(text, interrupt)) {
+            if (interrupt && ready) tts.stop();
+            return;
+        }
+        if (interrupt) pack.stop();
+        if (!ready) return;
         tts.setLanguage(slovak && slovakAvailable ? SLOVAK : ENGLISH);
         tts.speak(text, interrupt ? TextToSpeech.QUEUE_FLUSH : TextToSpeech.QUEUE_ADD, null, "dartled-" + (counter++));
     }
 
     public void stop() {
+        pack.stop();
         if (ready) tts.stop();
     }
 }

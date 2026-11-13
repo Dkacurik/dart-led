@@ -181,6 +181,12 @@ public final class MainActivity extends Activity {
             app.setNarratorOn(!app.narratorOn());
             narBtn.setText(app.narratorOn() ? "Narrator: ON" : "Narrator: OFF");
         });
+        Button voiceBtn = button(col, "", null);
+        voiceBtn.setText(app.recordedVoice() ? "Voice: Ryan (recorded)" : "Voice: tablet's own voice");
+        voiceBtn.setOnClickListener(v -> {
+            app.setRecordedVoice(!app.recordedVoice());
+            voiceBtn.setText(app.recordedVoice() ? "Voice: Ryan (recorded)" : "Voice: tablet's own voice");
+        });
         Button reqBtn = button(col, "", null);
         reqBtn.setText(app.callRequire() ? "Say \"you require 40\": ON" : "Say \"you require 40\": OFF");
         reqBtn.setOnClickListener(v -> {
