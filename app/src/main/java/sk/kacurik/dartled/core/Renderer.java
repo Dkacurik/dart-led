@@ -287,8 +287,17 @@ public final class Renderer {
 
     /** End of match: trophy + winner's name, and "WINS 2-1" underneath. */
     private static void drawWinner(Frame f, Scoreboard sb, int w, int h) {
+        String result = sb.winnerLine != null ? sb.winnerLine : "WINS " + sb.winnerLegs + "-" + sb.loserLegs;
+        winnerParts(f, sb.winner, result, w, h, 0, Integer.MAX_VALUE, 0, NAME, GOLD, GOLD);
+    }
+
+    /**
+     * The winner screen, piece by piece, for animating it: the trophy moved down by trophyDy,
+     * only the first nameChars letters of the name, the result line moved right by resultDx.
+     */
+    public static void winnerParts(Frame f, String winner, String result, int w, int h, int trophyDy,
+                                   int nameChars, int resultDx, int resultColor, int nameColor, int trophyColor) {
         PixelFont big = PixelFont.BIG;
-        String result = "WINS " + sb.winnerLegs + "-" + sb.loserLegs;
         int trophyW = TROPHY[0].length();
 
         // Biggest scale where both lines fit.
@@ -302,16 +311,28 @@ public final class Renderer {
         int y2 = h - gap - lineH;
         if (h < 2 * lineH + 2) { y1 = 0; y2 = h - lineH; }
 
-        String name = fit(big, shortName(sb.winner), s, w - (trophyW + 2) * s);
+        String name = fit(big, shortName(winner), s, w - (trophyW + 2) * s);
         int total = (trophyW + 2) * s + big.width(name, s);
         int x = Math.max(0, (w - total) / 2);
         for (int ty = 0; ty < TROPHY.length; ty++) {
             for (int tx = 0; tx < trophyW; tx++) {
-                if (TROPHY[ty].charAt(tx) == '#') f.fillRect(x + tx * s, y1 + ty * s, s, s, GOLD);
+                if (TROPHY[ty].charAt(tx) == '#') f.fillRect(x + tx * s, y1 + ty * s + trophyDy, s, s, trophyColor);
             }
         }
-        big.draw(f, name, x + (trophyW + 2) * s, y1, s, GOLD);
-        big.draw(f, result, (w - big.width(result, s)) / 2, y2, s, NAME);
+        String shown = name.substring(0, Math.min(name.length(), Math.max(0, nameChars)));
+        big.draw(f, shown, x + (trophyW + 2) * s, y1, s, nameColor);
+        big.draw(f, result, (w - big.width(result, s)) / 2 + resultDx, y2, s, resultColor);
+    }
+
+    /** Where the trophy sits on the winner screen: {x, y, width, height} in pixels. */
+    public static int[] trophyBox(String winner, String result, int w, int h) {
+        Frame probe = new Frame(w, h);
+        winnerParts(probe, winner, result, w, h, 0, 0, w * 4, 0, 0, 0xFFFFFF);
+        int minX = w, minY = h, maxX = -1, maxY = -1;
+        for (int y = 0; y < h; y++) for (int x = 0; x < w; x++) {
+            if (probe.px[y * w + x] != 0) { minX = Math.min(minX, x); maxX = Math.max(maxX, x); minY = Math.min(minY, y); maxY = Math.max(maxY, y); }
+        }
+        return maxX < 0 ? new int[]{0, 0, 0, 0} : new int[]{minX, minY, maxX - minX + 1, maxY - minY + 1};
     }
 
     /** Names are shown in capitals without accents, at most 7 letters: "Dávid" -> "DAVID". */

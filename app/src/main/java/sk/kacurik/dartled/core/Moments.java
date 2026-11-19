@@ -306,7 +306,7 @@ public final class Moments {
         if (now.round > before.round && before.round > 0) {
             boolean won = (now.streak > before.streak && now.streak > 0)
                     || (now.highest > before.highest && before.highest > 0);
-            return won ? checkedOut(b.score, w, h) : missed121(b.score, w, h);
+            return won ? checkedOut(b.name, b.score - 1, b.score, w, h) : missed121(b.score, w, h);
         }
         if (now.round != before.round || a.darts < 0 || b.darts <= a.darts) return null;
         int visit = a.score - b.score;
@@ -340,15 +340,84 @@ public final class Moments {
         return withSay(s, "One twenty one checkout! " + p.name + ", nine darts. Game on!", false);
     }
 
-    /** Round checked out: flashes, then the next target. */
-    public static List<Step> checkedOut(int next, int w, int h) {
+    /**
+     * Round checked out, animated: "CHECKED OUT!" flashes, the trophy rises and gets a shine,
+     * the name types in, "121 OUT!" slides in, then sparkles; then the next target.
+     */
+    public static List<Step> checkedOut(String name, int done, int next, int w, int h) {
+        String line = done + " OUT!";
+        int nameLen = Math.min(Renderer.shortName(name).length(), Renderer.MAX_NAME);
         List<Step> s = new ArrayList<>();
-        for (int i = 0; i < 4; i++) {
+        for (int i = 0; i < 2; i++) {
             s.add(new Step(lines(w, h, "CHECKED", i % 2 == 0 ? GOLD : GREEN, "OUT!", i % 2 == 0 ? GREEN : GOLD), 350));
-            s.add(new Step(new Frame(w, h), 120));
+            s.add(new Step(new Frame(w, h), 100));
         }
+        // The trophy rises from the bottom.
+        for (int dy : new int[]{h, h * 3 / 4, h / 2, h / 3, h / 5, 2, -1, 0}) {
+            s.add(new Step(win(name, line, w, h, dy, 0, w * 4, GOLD), 90));
+        }
+        // A shine sweeps across it.
+        int[] box = Renderer.trophyBox(name, line, w, h);
+        for (int k = 0; k <= box[2] + box[3]; k += 2) {
+            Frame f = win(name, line, w, h, 0, 0, w * 4, GOLD);
+            for (int y = box[1]; y < box[1] + box[3]; y++) {
+                for (int x = box[0]; x < box[0] + box[2]; x++) {
+                    int d = (x - box[0]) + (y - box[1]);
+                    if ((d == k || d == k + 1) && f.px[y * w + x] != 0) f.px[y * w + x] = WHITE;
+                }
+            }
+            s.add(new Step(f, 70));
+        }
+        // The name types in, one letter at a time.
+        for (int n = 1; n <= nameLen; n++) s.add(new Step(win(name, line, w, h, 0, n, w * 4, GOLD), 110));
+        // "121 OUT!" slides in from the right.
+        for (int dx : new int[]{w, w * 2 / 3, w / 2, w / 3, w / 5, w / 10, 2, 0}) {
+            s.add(new Step(win(name, line, w, h, 0, nameLen, dx, WHITE), 70));
+        }
+        // Sparkles around it while the result changes colour.
+        Random r = new Random(done);
+        int[] colors = {GOLD, WHITE, GREEN, CYAN, PINK, GOLD};
+        for (int i = 0; i < 12; i++) {
+            Frame f = win(name, line, w, h, 0, nameLen, 0, colors[i % colors.length]);
+            sparkle(f, r, 2 + w * h / 300);
+            s.add(new Step(f, 170));
+        }
+        Frame end = win(name, line, w, h, 0, nameLen, 0, WHITE);
+        s.add(new Step(end, 2000));
         s.add(new Step(lines(w, h, "NEXT", WHITE, Integer.toString(next), GOLD), 2200));
-        return withSay(s, "Checked out! Next target, " + next + ".", false);
+        return withSay(s, "Checked out! " + name + " takes " + done + "! Next target, " + next + ".", false);
+    }
+
+    private static Frame win(String name, String line, int w, int h, int trophyDy, int nameChars, int lineDx, int lineColor) {
+        Frame f = new Frame(w, h);
+        Renderer.winnerParts(f, name, line, w, h, trophyDy, nameChars, lineDx, lineColor, GOLD, GOLD);
+        return f;
+    }
+
+    /** Twinkles: small stars on empty pixels (a bright centre with dim arms). */
+    private static void sparkle(Frame f, Random r, int count) {
+        for (int n = 0, tries = 0; n < count && tries < 200; tries++) {
+            int x = r.nextInt(f.w), y = r.nextInt(f.h);
+            if (!emptyAround(f, x, y)) continue;
+            int c = r.nextBoolean() ? WHITE : GOLD;
+            f.px[y * f.w + x] = c;
+            if (r.nextBoolean()) {
+                int dim = ((c >> 17) & 0x7F) << 16 | ((c >> 9) & 0x7F) << 8 | ((c >> 1) & 0x7F);
+                int[][] arms = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+                for (int[] a : arms) {
+                    int ax = x + a[0], ay = y + a[1];
+                    if (ax >= 0 && ay >= 0 && ax < f.w && ay < f.h) f.px[ay * f.w + ax] = dim;
+                }
+            }
+            n++;
+        }
+    }
+
+    private static boolean emptyAround(Frame f, int x, int y) {
+        for (int yy = y - 2; yy <= y + 2; yy++) for (int xx = x - 2; xx <= x + 2; xx++) {
+            if (xx >= 0 && yy >= 0 && xx < f.w && yy < f.h && f.px[yy * f.w + xx] != 0) return false;
+        }
+        return true;
     }
 
     /** Round not finished: back to the safehouse. */

@@ -328,7 +328,7 @@ public final class DartApp extends Application {
         switch (kind) {
             case "180": play(Moments.oneEighty(s[0], s[1])); break;
             case "121": play(Moments.start121(new Scoreboard.Player(name, 121, 0, "", true), s[0], s[1])); break;
-            case "checked": play(Moments.checkedOut(122, s[0], s[1])); break;
+            case "checked": play(Moments.checkedOut(name, 121, 122, s[0], s[1])); break;
             case "missed": play(Moments.missed121(121, s[0], s[1])); break;
             case "26": play(Moments.twentySix(rnd, s[0], s[1])); break;
             case "ton": play(Moments.ton(name, 140, s[0], s[1])); break;

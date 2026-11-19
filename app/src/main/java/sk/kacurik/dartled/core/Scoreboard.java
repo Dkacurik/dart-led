@@ -56,6 +56,8 @@ public final class Scoreboard {
     public boolean game121;
     public int round, rounds, dartsLeft = -1, highest = -1, streak = -1, safehouse = -1;
     public int winnerLegs, loserLegs;
+    /** Text under the winner's name instead of "WINS 2-1" (e.g. "121 OUT!"). */
+    public String winnerLine;
 
     public boolean isEmpty() {
         return players.isEmpty() && winner == null && !bullUp;
