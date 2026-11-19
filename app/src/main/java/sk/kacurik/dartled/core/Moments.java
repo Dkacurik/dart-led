@@ -297,26 +297,37 @@ public final class Moments {
      * 121 Checkout. A new round means the last one is over: checked out (the streak went up)
      * or not (back to the safehouse). Inside a round, visits get the usual X01 moments.
      */
+    /** Last 121 screen seen (survives pop-ups in between) and the current round's target. */
+    private static Scoreboard last121;
+    private static int target121 = -1;
+
     static List<Step> for121(Scoreboard before, Scoreboard now, int w, int h, Random rnd) {
+        Scoreboard prev = before.game121 && !before.players.isEmpty() ? before : last121;
+        last121 = now;
         Scoreboard.Player b = now.players.get(0);
-        if (!before.game121 || before.players.isEmpty() || !sameNames(before, now)) {
+        int target = target121;
+        if (now.dartsLeft == 9) target121 = b.score;           // a round starts on its target
+        if (prev == null || !sameNames(prev, now)) {
             return now.round <= 1 && now.dartsLeft == 9 ? start121(b, w, h) : null;
         }
-        Scoreboard.Player a = before.players.get(0);
-        if (now.round > before.round && before.round > 0) {
-            boolean won = (now.streak > before.streak && now.streak > 0)
-                    || (now.highest > before.highest && before.highest > 0);
-            return won ? checkedOut(b.name, b.score - 1, b.score, w, h) : missed121(b.score, w, h);
+        Scoreboard.Player a = prev.players.get(0);
+        if (roundOver(prev, now)) {
+            boolean won = (now.streak > prev.streak && now.streak > 0)
+                    || (now.highest > prev.highest && prev.highest > 0)
+                    || (target > 0 && b.score > target);
+            int done = target > 0 ? target : b.score - 1;
+            return won ? checkedOut(b.name, done, b.score, w, h) : missed121(b.score, w, h);
         }
-        if (now.round != before.round || a.darts < 0 || b.darts <= a.darts) return null;
+        if (a.darts < 0 || b.darts <= a.darts) return null;
         int visit = a.score - b.score;
         if (visit == 0) {
             int sum = 0;
-            for (String x : before.entered) sum += Math.max(0, ScreenParser.dartValue(x));
+            for (String x : prev.entered) sum += Math.max(0, ScreenParser.dartValue(x));
             return sum > 0 ? bust(b.name, w, h) : noScore(b.name, w, h);
         }
+        if (visit < 0) return null;
         if (visit == 180) return oneEighty(w, h);
-        List<String> darts = visitDarts(a, before, visit);
+        List<String> darts = visitDarts(a, prev, visit);
         if (darts != null) {
             if (isVisit(darts, "S1", "S1", "S1")) return scoreJoke(3, ONE_ONE_ONE, CYAN, GOLD, rnd, w, h);
             if (sameBed(darts)) return scoreJoke(visit, SAME_BED, GOLD, GREEN, rnd, w, h);
@@ -327,6 +338,17 @@ public final class Moments {
         if (visit == 67) return sixSeven(rnd, w, h);
         if (visit >= 100) return ton(b.name, visit, w, h);
         return null;
+    }
+
+    /**
+     * A new round started: the round number went up, or the darts left came back to 9,
+     * or (checked out with the first visit) the target changed while 9 darts were left.
+     */
+    static boolean roundOver(Scoreboard prev, Scoreboard now) {
+        if (now.round > 0 && prev.round > 0 && now.round != prev.round) return true;
+        if (now.dartsLeft == 9 && prev.dartsLeft >= 0 && prev.dartsLeft < 9) return true;
+        return now.dartsLeft == 9 && prev.dartsLeft == 9
+                && now.players.get(0).score > prev.players.get(0).score;
     }
 
     public static List<Step> start121(Scoreboard.Player p, int w, int h) {
@@ -457,7 +479,7 @@ public final class Moments {
     public static int[] lastVisit(Scoreboard before, Scoreboard now) {
         if (before == null || now == null || before.players.size() != now.players.size()
                 || now.players.isEmpty() || !sameNames(before, now)) return null;
-        if (now.game121 && now.round != before.round) return null; // round over, not a visit
+        if (now.game121 && (!before.game121 || roundOver(before, now))) return null; // round over, not a visit
         for (int i = 0; i < now.players.size(); i++) {
             Scoreboard.Player a = before.players.get(i), b = now.players.get(i);
             if (b.legs != a.legs) return null;
