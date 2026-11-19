@@ -52,6 +52,10 @@ public final class Renderer {
             return f;
         }
         if (ps.isEmpty()) return f;
+        if (sb.game121) {
+            draw121(f, sb, w, h, label(labels, 0));
+            return f;
+        }
 
         // Short panels (e.g. 64x16): when the player at the oche can finish, show only
         // their score on top and the checkout darts underneath.
@@ -186,6 +190,71 @@ public final class Renderer {
         }
         String s = fit(small, p.checkout.toUpperCase(), 1, w);
         small.draw(f, s, 0, rowH + (h - rowH - small.h + 1) / 2, 1, CHECKOUT);
+    }
+
+    private static final int ROUND_C = 0x9A9A9A;
+    private static final int DART_ON = 0xFFE020;
+    private static final int DART_OFF = 0x303030;
+    private static final int SAFE = 0x28C8FF;
+
+    /**
+     * 121 Checkout. Top: target left, round ("R3") and nine dart pips for the darts left.
+     * Bottom: the checkout, or the safehouse when there's no checkout.
+     */
+    private static void draw121(Frame f, Scoreboard sb, int w, int h, String label) {
+        PixelFont big = PixelFont.BIG;
+        PixelFont small = PixelFont.SMALL;
+        Scoreboard.Player p = sb.players.get(0);
+        int y0 = Math.max(0, (h - 16) / 2);
+        int rowH = 8;
+
+        String score = Integer.toString(p.score);
+        big.draw(f, score, 0, y0, 1, PLAYER_COLORS[0]);
+        int x = big.width(score, 1) + 3;
+
+        // Darts left: three groups of three pips, flush right.
+        int pipW = 2, pipH = big.h - 2;
+        int pipsW = 9 * pipW + 6 * 1 + 2 * 3;
+        int px = w - pipsW;
+        if (sb.dartsLeft >= 0) {
+            for (int i = 0; i < 9; i++) {
+                f.fillRect(px, y0 + 1, pipW, pipH, i < sb.dartsLeft ? DART_ON : DART_OFF);
+                px += pipW + (i % 3 == 2 ? 3 : 1);
+            }
+        } else {
+            pipsW = 0;
+        }
+        String mid = label != null ? label : (sb.round > 0 ? "R" + sb.round : "");
+        int room = w - pipsW - 2 - x;
+        PixelFont mf = big.width(mid, 1) <= room ? big : small;
+        mid = fit(mf, mid, 1, room);
+        mf.draw(f, mid, x, y0 + (big.h - mf.h) / 2, 1, label != null ? VISIT : ROUND_C);
+
+        int y2 = y0 + rowH;
+        if (!p.checkout.isEmpty()) {
+            String[] darts = p.checkout.trim().toUpperCase().split("\\s+");
+            PixelFont[] fonts = {big, big, big, small, small};
+            int[] gaps = {5, 4, 3, 4, 2};
+            for (int k = 0; k < fonts.length; k++) {
+                PixelFont font = fonts[k];
+                int total = gaps[k] * (darts.length - 1);
+                for (String d : darts) total += font.width(d, 1);
+                if (total > w) continue;
+                int cx = (w - total) / 2;
+                int cy = y2 + (rowH - font.h + 1) / 2;
+                for (int i = 0; i < darts.length; i++) {
+                    font.draw(f, darts[i], cx, cy, 1, i == darts.length - 1 ? FINISH : CHECKOUT);
+                    cx += font.width(darts[i], 1) + gaps[k];
+                }
+                return;
+            }
+        }
+        if (sb.safehouse > 0) {
+            String safe = "SAFE " + sb.safehouse;
+            String streak = sb.streak > 0 ? "x" + sb.streak : "";
+            small.draw(f, safe, 0, y2 + 2, 1, SAFE);
+            if (!streak.isEmpty()) small.draw(f, streak.toUpperCase(), w - small.width(streak.toUpperCase(), 1), y2 + 2, 1, GOLD);
+        }
     }
 
     /** Bull-up: each player's name and distance from the bull; the closest one stays bright. */

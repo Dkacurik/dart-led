@@ -229,6 +229,7 @@ public final class Moments {
             return s;
         }
         if (now.players.isEmpty()) return null;
+        if (now.game121) return for121(before, now, w, h, rnd);
         if (isFreshStart(now) && (before.players.isEmpty() || before.bullUp || before.winner != null
                 || !sameNames(before, now))) {
             return gameOn(now, w, h);
@@ -293,6 +294,75 @@ public final class Moments {
     }
 
     /**
+     * 121 Checkout. A new round means the last one is over: checked out (the streak went up)
+     * or not (back to the safehouse). Inside a round, visits get the usual X01 moments.
+     */
+    static List<Step> for121(Scoreboard before, Scoreboard now, int w, int h, Random rnd) {
+        Scoreboard.Player b = now.players.get(0);
+        if (!before.game121 || before.players.isEmpty() || !sameNames(before, now)) {
+            return now.round <= 1 && now.dartsLeft == 9 ? start121(b, w, h) : null;
+        }
+        Scoreboard.Player a = before.players.get(0);
+        if (now.round > before.round && before.round > 0) {
+            boolean won = (now.streak > before.streak && now.streak > 0)
+                    || (now.highest > before.highest && before.highest > 0);
+            return won ? checkedOut(b.score, w, h) : missed121(b.score, w, h);
+        }
+        if (now.round != before.round || a.darts < 0 || b.darts <= a.darts) return null;
+        int visit = a.score - b.score;
+        if (visit == 0) {
+            int sum = 0;
+            for (String x : before.entered) sum += Math.max(0, ScreenParser.dartValue(x));
+            return sum > 0 ? bust(b.name, w, h) : noScore(b.name, w, h);
+        }
+        if (visit == 180) return oneEighty(w, h);
+        List<String> darts = visitDarts(a, before, visit);
+        if (darts != null) {
+            if (isVisit(darts, "S1", "S1", "S1")) return scoreJoke(3, ONE_ONE_ONE, CYAN, GOLD, rnd, w, h);
+            if (sameBed(darts)) return scoreJoke(visit, SAME_BED, GOLD, GREEN, rnd, w, h);
+            if (shanghai(darts)) return scoreJoke(visit, SHANGHAI, RED, GOLD, rnd, w, h);
+        }
+        if (visit == 26) return twentySix(rnd, w, h);
+        if (visit == 69) return scoreJoke(69, SIXTY_NINE, PINK, GOLD, rnd, w, h);
+        if (visit == 67) return sixSeven(rnd, w, h);
+        if (visit >= 100) return ton(b.name, visit, w, h);
+        return null;
+    }
+
+    public static List<Step> start121(Scoreboard.Player p, int w, int h) {
+        List<Step> s = new ArrayList<>();
+        int[] colors = {GOLD, RED, GREEN, CYAN};
+        for (int i = 0; i < 4; i++) {
+            s.add(new Step(lines(w, h, "121", colors[i], "CHECKOUT", WHITE), 300));
+            s.add(new Step(new Frame(w, h), 100));
+        }
+        s.add(new Step(lines(w, h, Renderer.shortName(p.name), WHITE, "9 DARTS", GOLD), 2000));
+        return withSay(s, "One twenty one checkout! " + p.name + ", nine darts. Game on!", false);
+    }
+
+    /** Round checked out: flashes, then the next target. */
+    public static List<Step> checkedOut(int next, int w, int h) {
+        List<Step> s = new ArrayList<>();
+        for (int i = 0; i < 4; i++) {
+            s.add(new Step(lines(w, h, "CHECKED", i % 2 == 0 ? GOLD : GREEN, "OUT!", i % 2 == 0 ? GREEN : GOLD), 350));
+            s.add(new Step(new Frame(w, h), 120));
+        }
+        s.add(new Step(lines(w, h, "NEXT", WHITE, Integer.toString(next), GOLD), 2200));
+        return withSay(s, "Checked out! Next target, " + next + ".", false);
+    }
+
+    /** Round not finished: back to the safehouse. */
+    public static List<Step> missed121(int back, int w, int h) {
+        List<Step> s = new ArrayList<>();
+        for (int i = 0; i < 3; i++) {
+            s.add(new Step(lines(w, h, "NOT THIS", RED, "TIME", WHITE), 350));
+            s.add(new Step(new Frame(w, h), 120));
+        }
+        s.add(new Step(lines(w, h, "BACK TO", WHITE, Integer.toString(back), CYAN), 2200));
+        return withSay(s, "Not this time. Back to " + back + ".", false);
+    }
+
+    /**
      * The three darts of the visit that was just submitted, from the input bar seen just
      * before. If the last dart wasn't seen, it's worked out from the visit total.
      */
@@ -318,6 +388,7 @@ public final class Moments {
     public static int[] lastVisit(Scoreboard before, Scoreboard now) {
         if (before == null || now == null || before.players.size() != now.players.size()
                 || now.players.isEmpty() || !sameNames(before, now)) return null;
+        if (now.game121 && now.round != before.round) return null; // round over, not a visit
         for (int i = 0; i < now.players.size(); i++) {
             Scoreboard.Player a = before.players.get(i), b = now.players.get(i);
             if (b.legs != a.legs) return null;

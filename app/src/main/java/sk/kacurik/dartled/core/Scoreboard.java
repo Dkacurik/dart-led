@@ -51,6 +51,10 @@ public final class Scoreboard {
     /** Darts of the visit currently being entered, e.g. ["T20", "S20"]. */
     public final List<String> entered = new ArrayList<>();
     public final String[][] markIcons = new String[2][7];
+
+    /** 121 Checkout: one player, a target to finish in 9 darts per round. */
+    public boolean game121;
+    public int round, rounds, dartsLeft = -1, highest = -1, streak = -1, safehouse = -1;
     public int winnerLegs, loserLegs;
 
     public boolean isEmpty() {
@@ -64,6 +68,7 @@ public final class Scoreboard {
         for (Player p : players) sb.append(p.key()).append(';');
         if (cricket) for (String[] row : markIcons) sb.append(java.util.Arrays.toString(row));
         sb.append("E:").append(entered);
+        if (game121) sb.append("C:").append(round).append('/').append(dartsLeft).append('/').append(streak).append('/').append(safehouse);
         if (bullUp) sb.append("B:").append(bullNames).append(bullDist).append(bullActive);
         return sb.toString();
     }
@@ -87,6 +92,9 @@ public final class Scoreboard {
                   .append("  ").append(d == null ? "-" : d + " mm");
             }
         }
+        if (game121) sb.append("121 checkout: round ").append(round).append('/').append(rounds)
+                .append(", darts left ").append(dartsLeft).append(", highest ").append(highest)
+                .append(", streak ").append(streak).append(", safehouse ").append(safehouse);
         if (!entered.isEmpty()) sb.append("\nentering: ").append(String.join(" ", entered));
         if (cricket) {
             String[] names = {"20", "19", "18", "17", "16", "15", "B"};

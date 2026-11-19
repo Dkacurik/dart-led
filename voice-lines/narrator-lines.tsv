@@ -1,0 +1,317 @@
+clip	text
+p_game_on	Game on!
+p_to_throw_first	to throw first.
+p_throws_first	throws first.
+p_you_require	you require
+p_one_eighty	One hundred and eighty!
+p_what_a_finish	What a finish!
+p_big_fish	The big fish! One hundred and seventy!
+p_game_shot_leg	Game shot, and the leg,
+p_game_shot_match	Game shot, and the match,
+p_bust	Bust!
+p_no_score	No score.
+p_six_seven_intro	Six... seven!
+n_1	One!
+n_2	Two!
+n_3	Three!
+n_4	Four!
+n_5	Five!
+n_6	Six!
+n_7	Seven!
+n_8	Eight!
+n_9	Nine!
+n_10	Ten!
+n_11	Eleven!
+n_12	Twelve!
+n_13	Thirteen!
+n_14	Fourteen!
+n_15	Fifteen!
+n_16	Sixteen!
+n_17	Seventeen!
+n_18	Eighteen!
+n_19	Nineteen!
+n_20	Twenty!
+n_21	Twenty-one!
+n_22	Twenty-two!
+n_23	Twenty-three!
+n_24	Twenty-four!
+n_25	Twenty-five!
+n_26	Twenty-six!
+n_27	Twenty-seven!
+n_28	Twenty-eight!
+n_29	Twenty-nine!
+n_30	Thirty!
+n_31	Thirty-one!
+n_32	Thirty-two!
+n_33	Thirty-three!
+n_34	Thirty-four!
+n_35	Thirty-five!
+n_36	Thirty-six!
+n_37	Thirty-seven!
+n_38	Thirty-eight!
+n_39	Thirty-nine!
+n_40	Forty!
+n_41	Forty-one!
+n_42	Forty-two!
+n_43	Forty-three!
+n_44	Forty-four!
+n_45	Forty-five!
+n_46	Forty-six!
+n_47	Forty-seven!
+n_48	Forty-eight!
+n_49	Forty-nine!
+n_50	Fifty!
+n_51	Fifty-one!
+n_52	Fifty-two!
+n_53	Fifty-three!
+n_54	Fifty-four!
+n_55	Fifty-five!
+n_56	Fifty-six!
+n_57	Fifty-seven!
+n_58	Fifty-eight!
+n_59	Fifty-nine!
+n_60	Sixty!
+n_61	Sixty-one!
+n_62	Sixty-two!
+n_63	Sixty-three!
+n_64	Sixty-four!
+n_65	Sixty-five!
+n_66	Sixty-six!
+n_67	Sixty-seven!
+n_68	Sixty-eight!
+n_69	Sixty-nine!
+n_70	Seventy!
+n_71	Seventy-one!
+n_72	Seventy-two!
+n_73	Seventy-three!
+n_74	Seventy-four!
+n_75	Seventy-five!
+n_76	Seventy-six!
+n_77	Seventy-seven!
+n_78	Seventy-eight!
+n_79	Seventy-nine!
+n_80	Eighty!
+n_81	Eighty-one!
+n_82	Eighty-two!
+n_83	Eighty-three!
+n_84	Eighty-four!
+n_85	Eighty-five!
+n_86	Eighty-six!
+n_87	Eighty-seven!
+n_88	Eighty-eight!
+n_89	Eighty-nine!
+n_90	Ninety!
+n_91	Ninety-one!
+n_92	Ninety-two!
+n_93	Ninety-three!
+n_94	Ninety-four!
+n_95	Ninety-five!
+n_96	Ninety-six!
+n_97	Ninety-seven!
+n_98	Ninety-eight!
+n_99	Ninety-nine!
+n_100	One hundred!
+n_101	One hundred and one!
+n_102	One hundred and two!
+n_103	One hundred and three!
+n_104	One hundred and four!
+n_105	One hundred and five!
+n_106	One hundred and six!
+n_107	One hundred and seven!
+n_108	One hundred and eight!
+n_109	One hundred and nine!
+n_110	One hundred and ten!
+n_111	One hundred and eleven!
+n_112	One hundred and twelve!
+n_113	One hundred and thirteen!
+n_114	One hundred and fourteen!
+n_115	One hundred and fifteen!
+n_116	One hundred and sixteen!
+n_117	One hundred and seventeen!
+n_118	One hundred and eighteen!
+n_119	One hundred and nineteen!
+n_120	One hundred and twenty!
+n_121	One hundred and twenty-one!
+n_122	One hundred and twenty-two!
+n_123	One hundred and twenty-three!
+n_124	One hundred and twenty-four!
+n_125	One hundred and twenty-five!
+n_126	One hundred and twenty-six!
+n_127	One hundred and twenty-seven!
+n_128	One hundred and twenty-eight!
+n_129	One hundred and twenty-nine!
+n_130	One hundred and thirty!
+n_131	One hundred and thirty-one!
+n_132	One hundred and thirty-two!
+n_133	One hundred and thirty-three!
+n_134	One hundred and thirty-four!
+n_135	One hundred and thirty-five!
+n_136	One hundred and thirty-six!
+n_137	One hundred and thirty-seven!
+n_138	One hundred and thirty-eight!
+n_139	One hundred and thirty-nine!
+n_140	One hundred and forty!
+n_141	One hundred and forty-one!
+n_142	One hundred and forty-two!
+n_143	One hundred and forty-three!
+n_144	One hundred and forty-four!
+n_145	One hundred and forty-five!
+n_146	One hundred and forty-six!
+n_147	One hundred and forty-seven!
+n_148	One hundred and forty-eight!
+n_149	One hundred and forty-nine!
+n_150	One hundred and fifty!
+n_151	One hundred and fifty-one!
+n_152	One hundred and fifty-two!
+n_153	One hundred and fifty-three!
+n_154	One hundred and fifty-four!
+n_155	One hundred and fifty-five!
+n_156	One hundred and fifty-six!
+n_157	One hundred and fifty-seven!
+n_158	One hundred and fifty-eight!
+n_159	One hundred and fifty-nine!
+n_160	One hundred and sixty!
+n_161	One hundred and sixty-one!
+n_162	One hundred and sixty-two!
+n_163	One hundred and sixty-three!
+n_164	One hundred and sixty-four!
+n_165	One hundred and sixty-five!
+n_166	One hundred and sixty-six!
+n_167	One hundred and sixty-seven!
+n_168	One hundred and sixty-eight!
+n_169	One hundred and sixty-nine!
+n_170	One hundred and seventy!
+n_171	One hundred and seventy-one!
+n_172	One hundred and seventy-two!
+n_173	One hundred and seventy-three!
+n_174	One hundred and seventy-four!
+n_175	One hundred and seventy-five!
+n_176	One hundred and seventy-six!
+n_177	One hundred and seventy-seven!
+n_178	One hundred and seventy-eight!
+n_179	One hundred and seventy-nine!
+n_180	One hundred and eighty!
+name_david	Dávid
+name_matej	Matej
+name_samuel	Samuel
+name_peter	Peter
+name_martin	Martin
+name_tomas	Tomáš
+name_michal	Michal
+name_jakub	Jakub
+name_lukas	Lukáš
+name_marek	Marek
+name_juraj	Juraj
+name_filip	Filip
+name_adam	Adam
+name_patrik	Patrik
+name_jan	Ján
+name_jozef	Jozef
+name_andrej	Andrej
+name_erik	Erik
+name_roman	Roman
+name_richard	Richard
+name_daniel	Daniel
+name_pavol	Pavol
+name_milan	Milan
+name_lucia	Lucia
+name_simona	Simona
+name_katka	Katka
+name_zuzana	Zuzana
+name_monika	Monika
+j_bed_and_breakfast	Bed and breakfast
+j_tea_and_toast	Tea and toast
+j_full_english	Full english!
+j_twenty_one_five_so_close	Twenty, one, five. So close!
+j_aim_what_aim	Aim? What aim?
+j_26_again_classic	26 Again? Classic!
+j_pub_champion	Pub champion!
+j_ouch_twenty_six	Ouch! Twenty six.
+j_room_service	Room service!
+j_late_checkout	Late checkout?
+j_booking_confirmed	Booking confirmed
+j_check_in_complete	Check-in complete!
+j_wake_up_call	Wake-up call!
+j_room_26_please	Room 26, please
+j_5_stars_for_26	5 Stars for 26!
+j_honeymoon_suite	Honeymoon suite
+j_breakfast_in_bed	Breakfast in bed!
+j_kettle_s_on	Kettle's on!
+j_bacon_and_eggs	Bacon and eggs
+j_sunny_side_up	Sunny side up!
+j_eggs_benedict	Eggs benedict
+j_croissant_anyone	Croissant anyone?
+j_coffee_please	Coffee please!
+j_porridge_again	Porridge again?
+j_snooze_button	Snooze button!
+j_wide_left	Wide left!
+j_no_20_for_you	No 20 for you!
+j_the_magic_26	The magic 26!
+j_mama_mia	Mama mia!
+j_twenty_twenty_five_classic	Twenty, twenty, five. Classic!
+j_5_says_hello	5 Says hello!
+j_so_close_to_60	So close to 60
+j_left_turn	Left turn!
+j_the_5_is_lonely	The 5 is lonely
+j_wrong_bed	Wrong bed!
+j_oops_wide_left	Oops! Wide left
+j_wide_right	Wide right!
+j_twenty_twenty_one_classic	Twenty, twenty, one. Classic!
+j_1_is_the_loneliest	1 Is the loneliest
+j_right_turn	Right turn!
+j_one_more_to_the_1	One more to the 1
+j_oops_wide_right	Oops! Wide right
+j_nice	Nice.
+j_sixty_nine_nice	Sixty nine. Nice!
+j_nice_nice_nice	Nice nice nice
+j_hehe_sixty_nine	Hehe. Sixty nine.
+j_very_nice	Very nice!
+j_six_seven	Six seven!
+j_six_seven_six_seven	Six seven! Six seven!
+j_siiix_sevennnn	Siiix, sevennnn!
+j_sixty_seven_six_seven	Sixty seven? Six seven!
+j_it_s_six_seven_bro	It's six seven, bro!
+j_robin_hood	Robin hood!
+j_same_bed	Same bed!
+j_crowded_bed	Crowded bed!
+j_no_room_in_bed	No room in bed!
+j_triplets	Triplets!
+j_cosy_in_there	Cosy in there!
+j_bunk_beds	Bunk beds!
+j_shanghai	Shanghai!
+j_single_double_treble_shanghai	Single, double, treble. Shanghai!
+j_full_house	Full house!
+j_good_grouping	Good grouping!
+j_warming_up_are_we	Warming up, are we?
+j_the_board_is_that_way	The board is that way.
+j_tough_board_tonight	Tough board tonight.
+j_every_point_counts_apparently	Every point counts. Apparently.
+j_small_steps	Small steps.
+j_steady	Steady.
+j_keeping_it_tidy	Keeping it tidy.
+j_room_for_improvement	Room for improvement.
+j_nothing_fancy	Nothing fancy.
+j_it_all_adds_up	It all adds up.
+j_not_bad	Not bad.
+j_solid_visit	Solid visit.
+j_decent	Decent.
+j_nicely_done	Nicely done.
+j_keep_it_coming	Keep it coming.
+j_good_scoring	Good scoring!
+j_now_we_re_talking	Now we're talking!
+j_that_s_more_like_it	That's more like it!
+j_lovely_darts	Lovely darts!
+j_found_the_rhythm	Found the rhythm!
+j_double_trouble	Double trouble!
+j_the_double_is_playing_hard_to_get	The double is playing hard to get.
+j_so_close_yet_so_far	So close, yet so far.
+j_that_double_is_shrinking	That double is shrinking.
+j_this_leg_is_taking_a_while	This leg is taking a while.
+j_somebody_check_this_one_out_please	Somebody check this one out, please.
+j_grab_a_drink_we_ll_be_here_a_while	Grab a drink, we'll be here a while.
+j_new_leg_fresh_start	New leg, fresh start.
+j_here_we_go_again	Here we go again.
+j_next_leg_reset_the_nerves	Next leg. Reset the nerves.
+j_it_s_the_deciding_leg	It's the deciding leg!
+j_match_darts	Match darts!
+j_is_running_away_with_it	is running away with it!

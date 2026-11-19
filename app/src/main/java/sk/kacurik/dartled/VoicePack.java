@@ -16,6 +16,9 @@ import sk.kacurik.dartled.core.VoiceScript;
 /** Plays the recorded voice clips in assets/voice/ one after another. */
 final class VoicePack {
 
+    /** 0.5 s of silence played before speaking when the speaker has been idle. */
+    static final String SILENCE = "p_silence";
+
     private final Context ctx;
     private final Set<String> available = new HashSet<>();
     private final Handler main = new Handler(Looper.getMainLooper());
@@ -42,6 +45,8 @@ final class VoicePack {
         if (keys == null) return false;
         main.post(() -> {
             if (interrupt) stopNow();
+            // Speaker was idle: play 0.5 s of silence first so it can wake up before the voice.
+            if (current == null && queue.isEmpty() && available.contains(SILENCE)) queue.add(SILENCE);
             queue.addAll(keys);
             if (current == null) next();
         });

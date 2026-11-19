@@ -148,6 +148,17 @@ public final class MainActivity extends Activity {
             b4.setOnClickListener(v -> app.testMoment(k[1]));
             bigs.addView(b4);
         }
+        LinearLayout c121 = new LinearLayout(this);
+        c121.setOrientation(LinearLayout.HORIZONTAL);
+        col.addView(c121);
+        String[][] kinds121 = {{"121 start", "121"}, {"Checked out", "checked"}, {"Missed round", "missed"}};
+        for (String[] k : kinds121) {
+            Button b5 = new Button(this);
+            b5.setText(k[0]);
+            b5.setAllCaps(false);
+            b5.setOnClickListener(v -> app.testMoment(k[1]));
+            c121.addView(b5);
+        }
         LinearLayout jokes = new LinearLayout(this);
         jokes.setOrientation(LinearLayout.HORIZONTAL);
         col.addView(jokes);

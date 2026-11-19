@@ -41,6 +41,11 @@ public final class ScreenParser {
             if (plain(tok).contains("WHO THROWS FIRST")) return parseBullUp(t);
         }
 
+        for (String tok : t) {
+            String p = plain(tok);
+            if (p.startsWith("DARTS LEFT") || p.equals("SAFEHOUSE")) return parse121(t);
+        }
+
         List<Integer> avgIdx = new ArrayList<>();
         for (int i = 0; i < t.size(); i++) {
             if (isAvgLabel(t.get(i))) avgIdx.add(i);
@@ -129,6 +134,59 @@ public final class ScreenParser {
         }
         parseEnteredDarts(t, avgIdx.get(avgIdx.size() - 1), sb);
         sb.legsToWin = legsToWin(t);
+        return sb;
+    }
+
+    private static final Pattern ROUND = Pattern.compile("ROUND (\\d+) (?:OF|/) (\\d+)");
+
+    /**
+     * 121 Checkout: one card with the name, the target still left ("121"), the checkout
+     * ("T20 T11 D14"), then "Darts left" 9, "Highest" 121, "Streak" 0, "Safehouse" 121,
+     * and "ROUND 1 OF 10" above the input bar.
+     */
+    static Scoreboard parse121(List<String> t) {
+        Scoreboard sb = new Scoreboard();
+        sb.game121 = true;
+        int left = -1;
+        for (int i = 0; i < t.size(); i++) {
+            String p = plain(strip(t.get(i)));
+            java.util.regex.Matcher m = ROUND.matcher(p);
+            if (m.find()) { sb.round = Integer.parseInt(m.group(1)); sb.rounds = Integer.parseInt(m.group(2)); }
+            int v = i + 1 < t.size() && isInt(t.get(i + 1)) ? Integer.parseInt(t.get(i + 1)) : -1;
+            if (p.startsWith("DARTS LEFT")) { if (left < 0) left = i; sb.dartsLeft = v; }
+            else if (p.equals("HIGHEST") && sb.highest < 0) sb.highest = v;
+            else if (p.equals("STREAK") && sb.streak < 0) sb.streak = v;
+            else if (p.equals("SAFEHOUSE") && sb.safehouse < 0) sb.safehouse = v;
+        }
+        if (left < 0) return sb;
+        // Walk back from "Darts left": checkout darts, then the score, then the name.
+        List<String> co = new ArrayList<>();
+        int i = left - 1;
+        while (i >= 0 && !isInt(t.get(i))) {
+            String s = t.get(i);
+            boolean all = true;
+            for (String part : s.trim().split("\\s+")) all &= isDart(part);
+            if (!all) break;
+            co.add(0, s.trim().toUpperCase(Locale.ROOT));
+            i--;
+        }
+        // A one-dart checkout ("D20" or "20") can look like the score: the score is the
+        // number right after the name.
+        int scoreAt = -1;
+        for (int j = i; j >= 0 && j >= i - 3; j--) {
+            if (isInt(t.get(j)) && j > 0 && isNameLike(t.get(j - 1))) { scoreAt = j; break; }
+        }
+        if (scoreAt < 0) return sb;
+        for (int j = scoreAt + 1; j <= i; j++) co.add(j - scoreAt - 1, t.get(j).trim().toUpperCase(Locale.ROOT));
+        String name = t.get(scoreAt - 1);
+        int score = Integer.parseInt(t.get(scoreAt));
+        Scoreboard.Player pl = new Scoreboard.Player(name, score, 0, String.join(" ", co), true);
+        // Darts thrown so far, so visits can be told apart like in X01.
+        if (sb.dartsLeft >= 0 && sb.round > 0) pl.darts = (sb.round - 1) * 9 + (9 - sb.dartsLeft);
+        sb.players.add(pl);
+        int barStart = left;
+        for (int j = 0; j < t.size(); j++) if (plain(t.get(j)).equals("SAFEHOUSE")) barStart = Math.max(barStart, j + 1);
+        parseEnteredDarts(t, barStart, sb);
         return sb;
     }
 

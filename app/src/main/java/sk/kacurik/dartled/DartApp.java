@@ -41,6 +41,7 @@ public final class DartApp extends Application {
     private final Random rnd = new Random();
     private final Quips quips = new Quips(rnd);
     private volatile Quips.Quip pendingQuip;   // said after the current animation ends
+    private volatile boolean momentInterrupts = true;   // false: the moment's first line queues after the score call
     private volatile int momentToken;
     private volatile boolean playing;
 
@@ -206,13 +207,16 @@ public final class DartApp extends Application {
         }
         boolean talk = narratorOn() && !"off".equals(quipsMode());
         Quips.Quip quip = talk && legWon(before, sb) ? quips.afterLeg(sb) : null;
+        int[] visit = Moments.lastVisit(before, sb);
+        // Call the score first ("Forty five!"), then the joke / comment follows.
+        boolean scoreCalled = narratorOn() && callScores() && visit != null && callScore(visit[1], moment);
         if (moment != null) {
             pendingQuip = quip;
+            momentInterrupts = !scoreCalled;
             play(moment);
             return;
         }
-        int[] visit = Moments.lastVisit(before, sb);
-        if (narratorOn()) speakTurn(before, sb, visit);
+        if (narratorOn()) speakTurn(before, sb, visit, scoreCalled);
         if (talk && quip == null) quip = quips.afterVisit(before, sb, System.currentTimeMillis());
         if (quip != null) narrator.say(quip.text, quip.slovak, false);
         if (visit != null && visit[1] > 0) {
@@ -251,7 +255,7 @@ public final class DartApp extends Application {
         return false;
     }
 
-    public boolean callScores() { return prefs.getBoolean("callScores", false); }
+    public boolean callScores() { return prefs.getBoolean("callScores", true); }
     public void setCallScores(boolean on) { prefs.edit().putBoolean("callScores", on).apply(); }
     public boolean callRequire() { return prefs.getBoolean("callRequire", true); }
     public void setCallRequire(boolean on) { prefs.edit().putBoolean("callRequire", on).apply(); }
@@ -267,9 +271,35 @@ public final class DartApp extends Application {
     public boolean voiceReady() { return narrator.isReady(); }
 
     /** Ordinary visit (no big moment): optionally call the score, and "you require" on a finish. */
-    private void speakTurn(Scoreboard before, Scoreboard now, int[] visit) {
-        if (visit != null && callScores()) narrator.say(visit[1] == 0 ? "No score." : Integer.toString(visit[1]), false, true);
+    /**
+     * Says the visit's score unless the moment already says it (180, ton, bust, no score).
+     * @return true if the score was spoken
+     */
+    private boolean callScore(int points, List<Moments.Step> moment) {
+        if (points <= 0) return false;                      // "No score." comes from the moment
+        if (moment != null) {
+            for (Moments.Step st : moment) {
+                if (st.say == null) continue;
+                String s = st.say.trim();
+                if (s.equals(points + "!") || s.startsWith("One hundred and eighty") || s.equals("Bust!")
+                        || s.equals("No score.")) return false;
+                break;
+            }
+        }
+        narrator.say(points + "!", false, true);
+        return true;
+    }
+
+    private void speakTurn(Scoreboard before, Scoreboard now, int[] visit, boolean scoreCalled) {
         if (!callRequire() || now.cricket || before.players.size() != now.players.size()) return;
+        if (now.game121) {
+            // One player, always at the oche: call what's left after each visit in the round.
+            Scoreboard.Player p = now.players.get(0);
+            if (visit != null && visit[1] > 0 && !p.checkout.isEmpty() && p.score <= 170) {
+                narrator.say("You require " + p.score + ".", false, false);
+            }
+            return;
+        }
         for (int i = 0; i < now.players.size(); i++) {
             Scoreboard.Player p = now.players.get(i);
             boolean wasActive = before.players.get(i).active;
@@ -297,6 +327,9 @@ public final class DartApp extends Application {
         String name = board.players.isEmpty() ? "Dávid" : board.players.get(0).name;
         switch (kind) {
             case "180": play(Moments.oneEighty(s[0], s[1])); break;
+            case "121": play(Moments.start121(new Scoreboard.Player(name, 121, 0, "", true), s[0], s[1])); break;
+            case "checked": play(Moments.checkedOut(122, s[0], s[1])); break;
+            case "missed": play(Moments.missed121(121, s[0], s[1])); break;
             case "26": play(Moments.twentySix(rnd, s[0], s[1])); break;
             case "ton": play(Moments.ton(name, 140, s[0], s[1])); break;
             case "bust": play(Moments.bust(name, s[0], s[1])); break;
@@ -350,7 +383,10 @@ public final class DartApp extends Application {
             return;
         }
         Moments.Step st = steps.get(i);
-        if (st.say != null && narratorOn()) narrator.say(st.say, st.slovak, i == 0);
+        if (st.say != null && narratorOn()) {
+            narrator.say(st.say, st.slovak, i == 0 && momentInterrupts);
+            momentInterrupts = true;   // only the first line of this moment may follow the score call
+        }
         frame = st.frame;
         link.submitFrame(st.frame);
         anim.schedule(() -> playStep(steps, i + 1, token), st.ms, TimeUnit.MILLISECONDS);

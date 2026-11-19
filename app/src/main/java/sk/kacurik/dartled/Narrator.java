@@ -56,7 +56,13 @@ public final class Narrator implements TextToSpeech.OnInitListener {
         if (interrupt) pack.stop();
         if (!ready) return;
         tts.setLanguage(slovak && slovakAvailable ? SLOVAK : ENGLISH);
-        tts.speak(text, interrupt ? TextToSpeech.QUEUE_FLUSH : TextToSpeech.QUEUE_ADD, null, "dartled-" + (counter++));
+        int mode = interrupt ? TextToSpeech.QUEUE_FLUSH : TextToSpeech.QUEUE_ADD;
+        if (interrupt || !tts.isSpeaking()) {
+            // Give the speaker 0.5 s to wake up before the first word.
+            tts.playSilentUtterance(500, mode, "dartled-wake-" + (counter++));
+            mode = TextToSpeech.QUEUE_ADD;
+        }
+        tts.speak(text, mode, null, "dartled-" + (counter++));
     }
 
     public void stop() {
