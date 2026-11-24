@@ -158,6 +158,8 @@ public final class DartApp extends Application {
         idle = false;
         momentToken++;          // stop a dart-throw animation if one is running
         playing = false;
+        playingPrio = 0;
+        queued.clear();
         boardKey = "";          // repaint the scoreboard even if it didn't change
     }
 
@@ -178,7 +180,7 @@ public final class DartApp extends Application {
             if (playing) return;
             int[] s = size();
             if (idleSeconds % 30 == 0) {
-                play(IdleClock.dartThrow(s[0], s[1], rnd));
+                play(IdleClock.dartThrow(s[0], s[1], rnd), PRIO_TINY);
                 return;
             }
             redraw();
@@ -218,39 +220,44 @@ public final class DartApp extends Application {
         // Call the score first ("Forty five!"), then the joke / comment follows.
         boolean scoreCalled = narratorOn() && callScores() && visit != null && callScore(visit[1], moment);
         if (moment == null && momentsOn()) {
-            // Smaller animations: the score ticking down, and the checkout appearing.
+            // Smaller animations. At most two things in a row: the score ticking down, then ONE of
+            // match darts / checkout reveal / one-dart finish / turn blink. A dart being entered
+            // only gets its little effect when nothing else is playing.
             int[] s = size();
             List<Moments.Step> small = new java.util.ArrayList<>();
+            int prio = PRIO_SMALL;
             if (visit != null && visit[1] > 0 && visit[0] < before.players.size()) {
                 small.addAll(Moments.scoreRoll(sb, visit[0], before.players.get(visit[0]).score,
                         visitLabel(sb, visit[1]), s[0], s[1]));
             }
-            List<Moments.Step> md = Moments.matchDartsMoment(sb, s[0], s[1]);
-            if (md != null) small.addAll(md);
-            List<Moments.Step> reveal = Moments.checkoutReveal(before, sb, s[0], s[1]);
-            if (reveal != null) small.addAll(reveal);
-            else if (Moments.turnChanged(before, sb)) {
-                List<Moments.Step> one = Moments.oneDartFinish(sb, s[0], s[1]);
-                small.addAll(one != null ? one : Moments.turnBlink(sb, s[0], s[1]));
+            List<Moments.Step> next = Moments.matchDartsMoment(sb, s[0], s[1]);
+            if (next == null) next = Moments.checkoutReveal(before, sb, s[0], s[1]);
+            if (next == null && Moments.turnChanged(before, sb)) {
+                next = Moments.oneDartFinish(sb, s[0], s[1]);
+                if (next == null) next = Moments.turnBlink(sb, s[0], s[1]);
             }
-            if (visit == null) {
+            if (next != null) small.addAll(next);
+            if (small.isEmpty() && visit == null) {
                 List<Moments.Step> dart = Moments.dartFx(before, sb, s[0], s[1]);
-                if (dart != null) small.addAll(dart);
+                if (dart != null) { small.addAll(dart); prio = PRIO_TINY; }
             }
             if (!small.isEmpty()) {
                 if (narratorOn()) speakTurn(before, sb, visit, scoreCalled);
                 if (talk && quip == null) quip = quips.afterVisit(before, sb, System.currentTimeMillis());
-                pendingQuip = quip;
                 startFlash(visit);
-                momentInterrupts = !scoreCalled;
-                play(small);
+                if (play(small, prio)) {
+                    pendingQuip = quip;
+                    momentInterrupts = !scoreCalled;
+                } else if (quip != null) {
+                    narrator.say(quip.text, quip.slovak, false);
+                }
                 return;
             }
         }
         if (moment != null) {
             pendingQuip = quip;
             momentInterrupts = !scoreCalled;
-            play(moment);
+            play(moment, PRIO_BIG);
             return;
         }
         if (narratorOn()) speakTurn(before, sb, visit, scoreCalled);
@@ -424,11 +431,36 @@ public final class DartApp extends Application {
         return b;
     }
 
+    /** How important the running animation is: a newer one only takes over if it matters as much. */
+    static final int PRIO_TINY = 1, PRIO_SMALL = 2, PRIO_BIG = 3;
+    private volatile int playingPrio;
+    /** Big moments that arrived while another big moment was playing; they play next. */
+    private final java.util.ArrayDeque<List<Moments.Step>> queued = new java.util.ArrayDeque<>();
+
     private void play(List<Moments.Step> steps) {
-        if (steps == null) return;
+        play(steps, PRIO_BIG);
+    }
+
+    /**
+     * Starts an animation unless something more important is playing.
+     * A big moment never gets cut off: another big one waits in line behind it.
+     * @return true if it will be shown
+     */
+    private synchronized boolean play(List<Moments.Step> steps, int prio) {
+        if (steps == null || steps.isEmpty()) return false;
+        if (playing) {
+            if (prio < playingPrio) return false;
+            if (prio == PRIO_BIG && playingPrio == PRIO_BIG) {
+                if (queued.size() < 2) queued.add(steps);
+                return true;
+            }
+            if (prio == PRIO_TINY) return false;            // never cut anything for a dart effect
+        }
         int token = ++momentToken;
         playing = true;
+        playingPrio = prio;
         anim.execute(() -> playStep(steps, 0, token));
+        return true;
     }
 
     private void playStep(List<Moments.Step> steps, int i, int token) {
@@ -437,7 +469,15 @@ public final class DartApp extends Application {
             Quips.Quip q = pendingQuip;
             pendingQuip = null;
             if (q != null && narratorOn()) narrator.say(q.text, q.slovak, false);
+            List<Moments.Step> nextUp;
+            synchronized (this) { nextUp = queued.poll(); }
+            if (nextUp != null) {
+                momentInterrupts = false;
+                anim.execute(() -> playStep(nextUp, 0, token));
+                return;
+            }
             playing = false;
+            playingPrio = 0;
             redraw();                                // back to the scoreboard
             return;
         }

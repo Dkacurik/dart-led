@@ -281,15 +281,15 @@ public final class Moments {
         boolean onDouble = a.active && !a.checkout.isEmpty() && a.score <= 50;
 
         List<Step> m = baseMoment(before, a, b, visit, bust, onDouble, zeros, w, h, rnd);
+        // At most ONE extra after the visit's own moment, the most special first.
         List<Step> out = m == null ? new ArrayList<>() : new ArrayList<>(m);
-        if (best) out.addAll(withSay(Fx.bestVisit(visit, w, h), "Best visit of the match!", false));
         if (visit == 180 && b.darts == 6 && (b.score == 141 || b.score == 341 || b.score == 641)) {
             out.addAll(nineDartWatch(w, h));
-        }
-        if (fire == 3 || fire == 5) {
+        } else if (best) {
+            out.addAll(withSay(Fx.bestVisit(visit, w, h), "Best visit of the match!", false));
+        } else if (fire == 3 || fire == 5) {
             out.addAll(withSay(Fx.onFire(b.name, w, h, rnd), b.name + " is on fire!", false));
-        }
-        if (out.isEmpty() && a.darts >= 0 && a.darts < 30 && b.darts >= 30) {
+        } else if (out.isEmpty() && a.darts >= 0 && a.darts < 30 && b.darts >= 30) {
             out.addAll(withSay(Fx.zzz(b.darts, w, h), "This leg is taking a while.", false));
         }
         return out.isEmpty() ? null : out;
@@ -533,7 +533,7 @@ public final class Moments {
         if (now.entered.size() != before.entered.size() + 1) return null;
         for (int i = 0; i < before.entered.size(); i++) if (!before.entered.get(i).equals(now.entered.get(i))) return null;
         String d = now.entered.get(now.entered.size() - 1);
-        if (d.equals("BULL") || d.equals("DBULL") || d.equals("D25")) return withSay(Fx.bull(w, h), "Bull!", false);
+        if (d.equals("BULL") || d.equals("DBULL") || d.equals("D25")) return Fx.bull(w, h);   // silent: the score call comes later
         if (d.equals("T20")) return Fx.ping("T20", w, h);
         return null;
     }
