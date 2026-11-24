@@ -17,6 +17,8 @@ public final class Scoreboard {
         public int darts = -1;
         /** True if the last visit was shown as a bust. */
         public boolean lastBust;
+        /** 3-dart average as shown, e.g. "85.33" (null if not seen). */
+        public String avg;
 
         public Player(String name, int score, int legs, String checkout, boolean active) {
             this.name = name;
@@ -68,6 +70,7 @@ public final class Scoreboard {
             q.lastScore = p.lastScore;
             q.darts = p.darts;
             q.lastBust = p.lastBust;
+            q.avg = p.avg;
             c.players.add(q);
         }
         c.legsToWin = legsToWin;

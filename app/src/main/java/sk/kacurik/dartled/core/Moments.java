@@ -95,7 +95,6 @@ public final class Moments {
             {"BED &", "BREAKFAST"},
             {"TEA AND", "TOAST"},
             {"FULL", "ENGLISH!"},
-            {"RANAJKY", "PODANE!"},
             {"20 1 5", "SO CLOSE!"},
             {"AIM?", "WHAT AIM?"},
             {"26 AGAIN?", "CLASSIC!"},
@@ -122,12 +121,6 @@ public final class Moments {
             {"WIDE", "LEFT!"},
             {"NO 20 FOR", "YOU!"},
             {"THE MAGIC", "26!"},
-            // po slovensky
-            {"DOBRE", "RANO!"},
-            {"PRAZENICA", "HOTOVA!"},
-            {"CHLIEB", "S MASLOM"},
-            {"KAVICKU?", "POTREBUJES"},
-            {"ZASA", "26?!"},
             {"MAMA", "MIA!"},
     };
 
@@ -141,7 +134,6 @@ public final class Moments {
             {"THE 5 IS", "LONELY"},
             {"WRONG", "BED!"},
             {"OOPS!", "WIDE LEFT"},
-            {"ZASA", "VLAVO!"},
     };
 
     /** 41 = 20, 20, 1. */
@@ -152,7 +144,6 @@ public final class Moments {
             {"RIGHT", "TURN!"},
             {"ONE MORE", "TO THE 1"},
             {"OOPS!", "WIDE RIGHT"},
-            {"ZASA", "VPRAVO!"},
             {"SO CLOSE", "TO 60"},
     };
 
@@ -162,7 +153,6 @@ public final class Moments {
             {"NICE", "NICE NICE"},
             {"HEHE", "69"},
             {"VERY", "NICE!"},
-            {"NAJS!", ""},
     };
 
     static final String[][] SIXTY_SEVEN = {
@@ -183,7 +173,6 @@ public final class Moments {
             {"TRIPLETS!", ""},
             {"COSY IN", "THERE!"},
             {"BUNK", "BEDS!"},
-            {"VSETKY", "SPOLU!"},
     };
 
     /** 1, 1, 1: right next to the 20... */
@@ -232,6 +221,7 @@ public final class Moments {
         if (now.game121) return for121(before, now, w, h, rnd);
         if (isFreshStart(now) && (before.players.isEmpty() || before.bullUp || before.winner != null
                 || !sameNames(before, now))) {
+            resetMatch();
             return gameOn(now, w, h);
         }
         if (before.players.size() != now.players.size() || !sameNames(before, now)) return null; // new match
@@ -243,6 +233,8 @@ public final class Moments {
                 if (a.score >= 100 && a.score <= 170) s.addAll(highFinish(a.score, w, h));
                 s.addAll(gameShot(b.name, w, h));
                 s.addAll(legsScore(now, w, h));
+                s.addAll(legStats(now, w, h));
+                zeroRun.clear();
                 return s;
             }
         }
@@ -258,38 +250,129 @@ public final class Moments {
                 if (b.score >= a.score) continue;
                 visit = a.score - b.score;
             }
-
-            // Bust = the visit scored more than was left, or would leave 1 (you must finish on
-            // a double). The remaining score then stays the same. Missed darts are NOT a bust.
-            boolean bust = b.lastBust
-                    || (b.score == a.score && b.lastScore > 0
-                        && (b.lastScore > a.score || a.score - b.lastScore == 1));
-            if (bust) return bust(b.name, w, h);
-            if (visit == 0 && b.score == a.score) return noScore(b.name, w, h);
-            if (visit == 180) return oneEighty(w, h);
-
-            // Dart-by-dart jokes, when we saw the darts being entered.
-            List<String> darts = visitDarts(a, before, visit);
-            boolean dartsKnown = darts != null;
-            if (dartsKnown) {
-                if (isVisit(darts, "S1", "S1", "S1")) return scoreJoke(3, ONE_ONE_ONE, CYAN, GOLD, rnd, w, h);
-                if (sameBed(darts)) return scoreJoke(visit, SAME_BED, GOLD, GREEN, rnd, w, h);
-                if (shanghai(darts)) return scoreJoke(visit, SHANGHAI, RED, GOLD, rnd, w, h);
-                if (isVisit(darts, "S20", "S20", "S5")) return scoreJoke(45, FORTY_FIVE, CYAN, PINK, rnd, w, h);
-                if (isVisit(darts, "S20", "S20", "S1")) return scoreJoke(41, FORTY_ONE, CYAN, PINK, rnd, w, h);
-            }
-            // Under 10 while still far from a finish (more than 50 left before the visit).
-            if (visit >= 1 && visit <= 9 && a.score > 50) {
-                return scoreJoke(visit, new String[][]{{"AIM?", "WHAT AIM?"}}, CYAN, PINK, rnd, w, h);
-            }
-            if (visit == 26) return twentySix(rnd, w, h);
-            if (visit == 45 && !dartsKnown) return scoreJoke(45, FORTY_FIVE, CYAN, PINK, rnd, w, h);
-            if (visit == 41 && !dartsKnown) return scoreJoke(41, FORTY_ONE, CYAN, PINK, rnd, w, h);
-            if (visit == 69) return scoreJoke(69, SIXTY_NINE, PINK, GOLD, rnd, w, h);
-            if (visit == 67) return sixSeven(rnd, w, h);
-            if (visit >= 100 && visit < 180) return ton(b.name, visit, w, h);
+            return visitMoment(before, a, b, visit, w, h, rnd);
         }
         return null;
+    }
+
+    // Per-match memory for streaks: visits of 60+ in a row, no-scores in a row, best visit.
+    private static final java.util.Map<String, Integer> fireRun = new java.util.HashMap<>();
+    private static final java.util.Map<String, Integer> zeroRun = new java.util.HashMap<>();
+    private static int matchBest = 0;
+
+    static void resetMatch() {
+        fireRun.clear();
+        zeroRun.clear();
+        matchBest = 0;
+    }
+
+    /** The moment for one visit (a = before, b = after), plus streak extras. */
+    static List<Step> visitMoment(Scoreboard before, Scoreboard.Player a, Scoreboard.Player b, int visit,
+                                  int w, int h, Random rnd) {
+        boolean bust = b.lastBust
+                || (b.score == a.score && b.lastScore > 0
+                    && (b.lastScore > a.score || a.score - b.lastScore == 1));
+        int fire = visit >= 60 && !bust ? fireRun.getOrDefault(b.name, 0) + 1 : 0;
+        fireRun.put(b.name, fire);
+        int zeros = visit == 0 && !bust ? zeroRun.getOrDefault(b.name, 0) + 1 : 0;
+        zeroRun.put(b.name, zeros);
+        boolean best = !bust && visit >= 100 && visit > matchBest && matchBest >= 100;
+        if (!bust) matchBest = Math.max(matchBest, visit);
+        boolean onDouble = a.active && !a.checkout.isEmpty() && a.score <= 50;
+
+        List<Step> m = baseMoment(before, a, b, visit, bust, onDouble, zeros, w, h, rnd);
+        List<Step> out = m == null ? new ArrayList<>() : new ArrayList<>(m);
+        if (best) out.addAll(withSay(Fx.bestVisit(visit, w, h), "Best visit of the match!", false));
+        if (visit == 180 && b.darts == 6 && (b.score == 141 || b.score == 341 || b.score == 641)) {
+            out.addAll(nineDartWatch(w, h));
+        }
+        if (fire == 3 || fire == 5) {
+            out.addAll(withSay(Fx.onFire(b.name, w, h, rnd), b.name + " is on fire!", false));
+        }
+        if (out.isEmpty() && a.darts >= 0 && a.darts < 30 && b.darts >= 30) {
+            out.addAll(withSay(Fx.zzz(b.darts, w, h), "This leg is taking a while.", false));
+        }
+        return out.isEmpty() ? null : out;
+    }
+
+    private static List<Step> baseMoment(Scoreboard before, Scoreboard.Player a, Scoreboard.Player b, int visit,
+                                         boolean bust, boolean onDouble, int zeros, int w, int h, Random rnd) {
+        // Bust = the visit scored more than was left, or would leave 1 (you must finish on
+        // a double). The remaining score then stays the same. Missed darts are NOT a bust.
+        if (bust) return bust(b.name, w, h);
+        if (visit == 0 && b.score == a.score) {
+            if (zeros >= 3) return withSay(Fx.shake("WAKE UP!", RED, WHITE, w, h), "Wake up!", false);
+            if (onDouble) return soClose(w, h);
+            return noScore(b.name, w, h);
+        }
+        if (visit == 180) return oneEighty(w, h);
+
+        // Dart-by-dart jokes, when we saw the darts being entered.
+        List<String> darts = visitDarts(a, before, visit);
+        boolean dartsKnown = darts != null;
+        if (dartsKnown) {
+            if (isVisit(darts, "S1", "S1", "S1")) return scoreJoke(3, ONE_ONE_ONE, CYAN, GOLD, rnd, w, h);
+            if (sameBed(darts)) return scoreJoke(visit, SAME_BED, GOLD, GREEN, rnd, w, h);
+            if (shanghai(darts)) return scoreJoke(visit, SHANGHAI, RED, GOLD, rnd, w, h);
+            if (isVisit(darts, "S20", "S20", "S5")) return scoreJoke(45, FORTY_FIVE, CYAN, PINK, rnd, w, h);
+            if (isVisit(darts, "S20", "S20", "S1")) return scoreJoke(41, FORTY_ONE, CYAN, PINK, rnd, w, h);
+        }
+        // Missed the double, still on a finish.
+        if (onDouble && b.score > 0) return soClose(w, h);
+        // Under 10 while still far from a finish (more than 50 left before the visit).
+        if (visit >= 1 && visit <= 9 && a.score > 50) {
+            return scoreJoke(visit, new String[][]{{"AIM?", "WHAT AIM?"}}, CYAN, PINK, rnd, w, h);
+        }
+        if (visit == 26) return twentySix(rnd, w, h);
+        if (visit == 45 && !dartsKnown) return scoreJoke(45, FORTY_FIVE, CYAN, PINK, rnd, w, h);
+        if (visit == 41 && !dartsKnown) return scoreJoke(41, FORTY_ONE, CYAN, PINK, rnd, w, h);
+        if (visit == 69) return scoreJoke(69, SIXTY_NINE, PINK, GOLD, rnd, w, h);
+        if (visit == 67) return sixSeven(rnd, w, h);
+        if (visit >= 10 && visit <= 19 && a.score > 50) {
+            String[] sad = {"MEH.", "OH DEAR", "SAD DART", "UNLUCKY", "OOF."};
+            String line = sad[rnd.nextInt(sad.length)];
+            return withSay(Fx.sadFace(line, w, h), spoken(line), false);
+        }
+        if (visit >= 100 && visit < 180) return ton(b.name, visit, w, h);
+        return null;
+    }
+
+    /** Missed the double: "SO CLOSE!" shakes its head. */
+    public static List<Step> soClose(int w, int h) {
+        return withSay(Fx.shake("SO CLOSE!", GOLD, WHITE, w, h), "So close!", false);
+    }
+
+    /** Two 180s to start a leg: nine-dart watch! */
+    public static List<Step> nineDartWatch(int w, int h) {
+        List<Step> s = new ArrayList<>();
+        for (int i = 0; i < 6; i++) {
+            Frame f = lines(w, h, "9-DART", i % 2 == 0 ? GOLD : RED, "WATCH!", i % 2 == 0 ? RED : GOLD);
+            if (i % 2 == 0) Fx.sides(f, GOLD);
+            s.add(new Step(f, 300));
+        }
+        s.add(new Step(lines(w, h, "9-DART", GOLD, "WATCH!", RED), 1500));
+        return withSay(s, "Nine dart watch!", false);
+    }
+
+    /** After a leg: everyone's average scrolls past. */
+    public static List<Step> legStats(Scoreboard now, int w, int h) {
+        List<String> parts = new ArrayList<>();
+        List<Integer> colors = new ArrayList<>();
+        for (Scoreboard.Player p : now.players) {
+            if (p.avg == null) continue;
+            parts.add(Renderer.shortName(p.name));
+            colors.add(WHITE);
+            parts.add("AVG " + p.avg);
+            colors.add(GOLD);
+            parts.add("-");
+            colors.add(0x606060);
+        }
+        if (parts.isEmpty()) return new ArrayList<>();
+        parts.remove(parts.size() - 1);
+        colors.remove(colors.size() - 1);
+        int[] c = new int[colors.size()];
+        for (int i = 0; i < c.length; i++) c[i] = colors.get(i);
+        return Fx.marquee(parts.toArray(new String[0]), c, w, h);
     }
 
     /**
@@ -363,6 +446,96 @@ public final class Moments {
             b.append(i >= k ? "~" : "").append(darts[i]);
         }
         return b.toString();
+    }
+
+    /** For the test buttons in the app. */
+    public static List<Step> testFx(String kind, String name, int w, int h) {
+        Random r = new Random();
+        switch (kind) {
+            case "bull": return withSay(Fx.bull(w, h), "Bull!", false);
+            case "t20": return Fx.ping("T20", w, h);
+            case "fire": return withSay(Fx.onFire(name, w, h, r), name + " is on fire!", false);
+            case "best": return withSay(Fx.bestVisit(140, w, h), "Best visit of the match!", false);
+            case "sad": return withSay(Fx.sadFace("OH DEAR", w, h), "Oh dear.", false);
+            case "wake": return withSay(Fx.shake("WAKE UP!", RED, WHITE, w, h), "Wake up!", false);
+            case "zzz": return withSay(Fx.zzz(30, w, h), "This leg is taking a while.", false);
+            case "double": return Fx.doubleTarget("D16", w, h);
+            case "match": return Fx.matchDarts(name, w, h);
+            case "stats": {
+                Scoreboard sb = Scoreboard.demo();
+                sb.players.get(0).avg = "85.33";
+                sb.players.get(1).avg = "62.10";
+                return legStats(sb, w, h);
+            }
+            default: {
+                Scoreboard sb = new Scoreboard();
+                sb.winner = name;
+                sb.winnerLegs = 2;
+                sb.loserLegs = 1;
+                return winner(sb, w, h);
+            }
+        }
+    }
+
+    /** Index of the player at the oche, or -1. */
+    static int activeIndex(Scoreboard sb) {
+        for (int i = 0; i < sb.players.size(); i++) if (sb.players.get(i).active) return i;
+        return -1;
+    }
+
+    /** The turn passed to another player (same match). */
+    public static boolean turnChanged(Scoreboard before, Scoreboard now) {
+        if (now.game121 || before.players.size() != now.players.size() || !sameNames(before, now)) return false;
+        int a = activeIndex(before), b = activeIndex(now);
+        return b >= 0 && a >= 0 && a != b;
+    }
+
+    /** The new thrower's name blinks twice so everyone sees whose turn it is. */
+    public static List<Step> turnBlink(Scoreboard now, int w, int h) {
+        List<Step> s = new ArrayList<>();
+        int idx = activeIndex(now);
+        if (idx < 0) return s;
+        String[] hide = new String[now.players.size()];
+        hide[idx] = " ";
+        Frame off = Renderer.render(now, w, h, hide);
+        Frame on = Renderer.render(now, w, h);
+        for (int i = 0; i < 2; i++) {
+            s.add(new Step(off, 140));
+            s.add(new Step(on, 200));
+        }
+        return s;
+    }
+
+    private static final java.util.Set<String> matchDartsShown = new java.util.HashSet<>();
+
+    /** First time in a leg that the player at the oche has darts for the match. */
+    public static List<Step> matchDartsMoment(Scoreboard now, int w, int h) {
+        int idx = activeIndex(now);
+        if (idx < 0 || !Renderer.matchDart(now, now.players.get(idx))) return null;
+        int legs = 0;
+        for (Scoreboard.Player p : now.players) legs += p.legs;
+        Scoreboard.Player p = now.players.get(idx);
+        if (!matchDartsShown.add(p.name + "|" + legs)) return null;
+        return Fx.matchDarts(p.name, w, h);
+    }
+
+    /** A one-dart finish (D16, BULL) for the player who just came to the oche. */
+    public static List<Step> oneDartFinish(Scoreboard now, int w, int h) {
+        int idx = activeIndex(now);
+        if (idx < 0 || now.cricket || now.game121) return null;
+        String co = now.players.get(idx).checkout.trim().toUpperCase(java.util.Locale.ROOT);
+        if (co.isEmpty() || co.contains(" ") || !(co.startsWith("D") || co.startsWith("BULL"))) return null;
+        return Fx.doubleTarget(co, w, h);
+    }
+
+    /** A dart was just entered: T20 pings, a bull lights up rings. */
+    public static List<Step> dartFx(Scoreboard before, Scoreboard now, int w, int h) {
+        if (now.entered.size() != before.entered.size() + 1) return null;
+        for (int i = 0; i < before.entered.size(); i++) if (!before.entered.get(i).equals(now.entered.get(i))) return null;
+        String d = now.entered.get(now.entered.size() - 1);
+        if (d.equals("BULL") || d.equals("DBULL") || d.equals("D25")) return withSay(Fx.bull(w, h), "Bull!", false);
+        if (d.equals("T20")) return Fx.ping("T20", w, h);
+        return null;
     }
 
     /** Legs score after a leg in a two-player match: "LEGS" / "1 - 0". */
@@ -653,14 +826,11 @@ public final class Moments {
         return withSay(s, "One hundred and eighty!", false);
     }
 
+    /** 100-139: fireworks. 140-179: a rocket. */
     public static List<Step> ton(String name, int score, int w, int h) {
-        List<Step> s = new ArrayList<>();
-        String n = Renderer.shortName(name);
-        for (int i = 0; i < 3; i++) {
-            s.add(new Step(lines(w, h, n, WHITE, score + "!", GOLD), 400));
-            s.add(new Step(lines(w, h, n, WHITE, "", GOLD), 150));
-        }
-        s.add(new Step(lines(w, h, n, WHITE, score + "!", GOLD), 1500));
+        Random r = new Random(score * 31L + System.nanoTime() % 1000);
+        List<Step> s = score >= 140 ? Fx.rocket(score + "!", w, h, r) : Fx.fireworks(score + "!", w, h, r);
+        s.add(new Step(lines(w, h, Renderer.shortName(name), WHITE, score + "!", GOLD), 900));
         return withSay(s, score + "!", false);
     }
 
@@ -787,14 +957,16 @@ public final class Moments {
         return withSay(s, "Six... seven!", false);
     }
 
-    /** Blinks the winner screen a few times; the app then keeps it on. */
+    /** Blinks the winner screen a few times, then confetti; the app then keeps it on. */
     public static List<Step> winner(Scoreboard sb, int w, int h) {
         List<Step> s = new ArrayList<>();
+        Frame win = Renderer.render(sb, w, h);
         for (int i = 0; i < 4; i++) {
-            s.add(new Step(Renderer.render(sb, w, h), 450));
+            s.add(new Step(win, 450));
             s.add(new Step(new Frame(w, h), 150));
         }
-        s.add(new Step(Renderer.render(sb, w, h), 500));
+        s.addAll(Fx.confetti(win, 30, new Random()));
+        s.add(new Step(win, 500));
         return withSay(s, "Game shot, and the match, " + sb.winner + "!", false);
     }
 

@@ -95,6 +95,7 @@ public final class ScreenParser {
             }
 
             Scoreboard.Player pl = new Scoreboard.Player(name, score, legs, co.toString(), false);
+            if (end + 1 < t.size() && t.get(end + 1).matches("^\\d{1,3}([.,]\\d{1,2})?$")) pl.avg = t.get(end + 1).replace(',', '.');
             // Stats under this card: "Last score" x, "Darts thrown" y (up to the next card).
             int statsEnd = p + 1 < avgIdx.size() ? avgIdx.get(p + 1) : t.size();
             for (int i = end + 1; i + 1 < statsEnd + 1 && i + 1 < t.size(); i++) {
@@ -124,6 +125,7 @@ public final class ScreenParser {
                 np.lastScore = pl.lastScore;
                 np.darts = pl.darts;
                 np.lastBust = pl.lastBust;
+                np.avg = pl.avg;
                 marked.add(np);
             }
             sb.players.clear();

@@ -68,7 +68,7 @@ public final class DartApp extends Application {
         link = new LedLink(this);
         narrator = new Narrator(this);
         narrator.setUseRecordedVoice(recordedVoice());
-        quips.language = quipsMode().equals("off") ? "mix" : quipsMode();
+        quips.language = "en";
         quips.chance = quipsChance();
         link.setAddress(prefs.getString("address", null));
         anim.scheduleAtFixedRate(this::tick, 1, 1, TimeUnit.SECONDS);
@@ -170,6 +170,7 @@ public final class DartApp extends Application {
                     || (lastMatchAt > 0 && now - lastMatchAt > 10 * 60_000));
             if (!shouldIdle) {
                 if (idle) { leaveIdle(); redraw(); }
+                else if (!playing && hasMatchDart()) { Renderer.pulse = !Renderer.pulse; redraw(); }
                 return;
             }
             if (!idle) { idle = true; idleSeconds = 0; }
@@ -184,6 +185,12 @@ public final class DartApp extends Application {
         } catch (Exception ignored) {
             // never let the timer die
         }
+    }
+
+    private boolean hasMatchDart() {
+        Scoreboard b = board;
+        for (Scoreboard.Player p : b.players) if (Renderer.matchDart(b, p)) return true;
+        return false;
     }
 
     public void showDemo() {
@@ -218,8 +225,18 @@ public final class DartApp extends Application {
                 small.addAll(Moments.scoreRoll(sb, visit[0], before.players.get(visit[0]).score,
                         visitLabel(sb, visit[1]), s[0], s[1]));
             }
+            List<Moments.Step> md = Moments.matchDartsMoment(sb, s[0], s[1]);
+            if (md != null) small.addAll(md);
             List<Moments.Step> reveal = Moments.checkoutReveal(before, sb, s[0], s[1]);
             if (reveal != null) small.addAll(reveal);
+            else if (Moments.turnChanged(before, sb)) {
+                List<Moments.Step> one = Moments.oneDartFinish(sb, s[0], s[1]);
+                small.addAll(one != null ? one : Moments.turnBlink(sb, s[0], s[1]));
+            }
+            if (visit == null) {
+                List<Moments.Step> dart = Moments.dartFx(before, sb, s[0], s[1]);
+                if (dart != null) small.addAll(dart);
+            }
             if (!small.isEmpty()) {
                 if (narratorOn()) speakTurn(before, sb, visit, scoreCalled);
                 if (talk && quip == null) quip = quips.afterVisit(before, sb, System.currentTimeMillis());
@@ -264,11 +281,11 @@ public final class DartApp extends Application {
     public void setNarratorOn(boolean on) { prefs.edit().putBoolean("narrator", on).apply(); if (!on) narrator.stop(); }
     public boolean recordedVoice() { return prefs.getBoolean("recordedVoice", true); }
     public void setRecordedVoice(boolean on) { prefs.edit().putBoolean("recordedVoice", on).apply(); narrator.setUseRecordedVoice(on); }
-    /** Hlášky: "mix", "en", "sk" or "off". */
-    public String quipsMode() { return prefs.getString("quips", "mix"); }
+    /** Hlášky: "en" (on, English only) or "off". Older "mix"/"sk" settings count as on. */
+    public String quipsMode() { return "off".equals(prefs.getString("quips", "en")) ? "off" : "en"; }
     public void setQuipsMode(String m) {
         prefs.edit().putString("quips", m).apply();
-        if (!"off".equals(m)) quips.language = m;
+        quips.language = "en";
     }
     public double quipsChance() { return prefs.getFloat("quipsChance", 0.4f); }
     public void setQuipsChance(double c) { prefs.edit().putFloat("quipsChance", (float) c).apply(); quips.chance = c; }
@@ -293,7 +310,7 @@ public final class DartApp extends Application {
         narrator.say("One hundred and eighty!", false, false);
         narrator.say("Dávid, you require 40.", false, false);
         narrator.say("Bed and breakfast", false, false);
-        narrator.say("Raňajky podané!", true, false);
+        narrator.say("Tea and toast!", false, false);
     }
 
     public boolean voiceReady() { return narrator.isReady(); }
@@ -374,6 +391,20 @@ public final class DartApp extends Application {
             case "111": play(Moments.forChange(entering(visitBoard(name, 501, 0), "S1", "S1", "S1"), visitBoard(name, 498, 3), s[0], s[1], rnd)); break;
             case "robin": play(Moments.forChange(entering(visitBoard(name, 501, 0), "S19", "S19", "S19"), visitBoard(name, 444, 57), s[0], s[1], rnd)); break;
             case "shanghai": play(Moments.forChange(entering(visitBoard(name, 501, 0), "S20", "D20", "T20"), visitBoard(name, 381, 120), s[0], s[1], rnd)); break;
+            case "fireworks": play(Moments.ton(name, 100, s[0], s[1])); break;
+            case "bullhit": play(Moments.testFx("bull", name, s[0], s[1])); break;
+            case "t20": play(Moments.testFx("t20", name, s[0], s[1])); break;
+            case "fire": play(Moments.testFx("fire", name, s[0], s[1])); break;
+            case "best": play(Moments.testFx("best", name, s[0], s[1])); break;
+            case "sad": play(Moments.testFx("sad", name, s[0], s[1])); break;
+            case "wake": play(Moments.testFx("wake", name, s[0], s[1])); break;
+            case "zzz": play(Moments.testFx("zzz", name, s[0], s[1])); break;
+            case "double": play(Moments.testFx("double", name, s[0], s[1])); break;
+            case "close": play(Moments.soClose(s[0], s[1])); break;
+            case "match": play(Moments.testFx("match", name, s[0], s[1])); break;
+            case "nine": play(Moments.nineDartWatch(s[0], s[1])); break;
+            case "stats": play(Moments.testFx("stats", name, s[0], s[1])); break;
+            case "winner": play(Moments.testFx("winner", name, s[0], s[1])); break;
             default: play(Moments.gameShot(name, s[0], s[1])); break;
         }
     }

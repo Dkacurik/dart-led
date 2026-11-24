@@ -151,6 +151,25 @@ public final class MainActivity extends Activity {
         LinearLayout c121 = new LinearLayout(this);
         c121.setOrientation(LinearLayout.HORIZONTAL);
         col.addView(c121);
+        String[][][] fxRows = {
+                {{"Fireworks", "fireworks"}, {"Rocket", "ton"}, {"Bull", "bullhit"}, {"T20", "t20"}, {"On fire", "fire"}},
+                {{"Best visit", "best"}, {"Sad face", "sad"}, {"Wake up", "wake"}, {"Zzz", "zzz"}, {"Double", "double"}},
+                {{"So close", "close"}, {"Match darts", "match"}, {"9-dart", "nine"}, {"Leg stats", "stats"}, {"Winner", "winner"}},
+        };
+        for (String[][] row : fxRows) {
+            android.widget.HorizontalScrollView sc = new android.widget.HorizontalScrollView(this);
+            LinearLayout line = new LinearLayout(this);
+            line.setOrientation(LinearLayout.HORIZONTAL);
+            sc.addView(line);
+            col.addView(sc);
+            for (String[] k : row) {
+                Button b6 = new Button(this);
+                b6.setText(k[0]);
+                b6.setAllCaps(false);
+                b6.setOnClickListener(v -> app.testMoment(k[1]));
+                line.addView(b6);
+            }
+        }
         String[][] kinds121 = {{"121 start", "121"}, {"Checked out", "checked"}, {"Missed round", "missed"}};
         for (String[] k : kinds121) {
             Button b5 = new Button(this);
@@ -198,8 +217,7 @@ public final class MainActivity extends Activity {
             app.setRecordedVoice(!app.recordedVoice());
             voiceBtn.setText(app.recordedVoice() ? "Voice: Ryan (recorded)" : "Voice: tablet's own voice");
         });
-        String[][] quipModes = {{"mix", "Hlášky: English + Slovak"}, {"en", "Hlášky: English only"},
-                {"sk", "Hlášky: Slovak only"}, {"off", "Hlášky: OFF"}};
+        String[][] quipModes = {{"en", "Hlášky: ON (English)"}, {"off", "Hlášky: OFF"}};
         Button quipBtn = button(col, "", null);
         Runnable showQuip = () -> {
             for (String[] q : quipModes) if (q[0].equals(app.quipsMode())) quipBtn.setText(q[1]);

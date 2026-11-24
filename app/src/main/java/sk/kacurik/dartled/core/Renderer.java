@@ -56,13 +56,23 @@ public final class Renderer {
             return f;
         }
 
+        // Darts being entered right now show in place of the thrower's name ("T20 S5").
+        if (!sb.entered.isEmpty()) {
+            for (int i = 0; i < ps.size(); i++) {
+                if (!ps.get(i).active || label(labels, i) != null) continue;
+                String[] l = labels == null ? new String[ps.size()] : labels.clone();
+                l[i] = String.join(" ", sb.entered);
+                labels = l;
+            }
+        }
+
         // Short panels (e.g. 64x16): when the player at the oche can finish, show only
         // their score on top and the checkout darts underneath.
         if (h < 24) {
             for (int i = 0; i < ps.size(); i++) {
                 Scoreboard.Player p = ps.get(i);
                 if (p.active && !p.checkout.isEmpty()) {
-                    drawCheckout(f, p, i, w, h, label(labels, i));
+                    drawCheckout(f, p, i, w, h, label(labels, i), matchDart(sb, p));
                     return f;
                 }
             }
@@ -78,16 +88,30 @@ public final class Renderer {
             Scoreboard.Player p = ps.get(i);
             int y0 = i * rowH + (i == n - 1 ? h - n * rowH : 0); // give leftover pixels to last row
             boolean bright = !anyActive || p.active;
-            drawRow(f, p, i, 0, y0, w, rowH, bright, label(labels, i));
+            drawRow(f, p, i, 0, y0, w, rowH, bright, label(labels, i), matchDart(sb, p));
         }
         return f;
+    }
+
+    /** Toggled every second by the app so match darts make the score pulse. */
+    public static volatile boolean pulse;
+    private static final int PULSE_A = 0xFF2010, PULSE_B = 0xFFC814;
+
+    /** The player at the oche can win the match with this leg and has a checkout. */
+    public static boolean matchDart(Scoreboard sb, Scoreboard.Player p) {
+        return p.active && !p.checkout.isEmpty() && sb.legsToWin > 0 && p.legs == sb.legsToWin - 1 && !sb.cricket;
+    }
+
+    /** "-60"/"+60" in green, darts being entered ("T20 S5") in yellow. */
+    private static int labelColor(String label) {
+        return label.startsWith("-") || label.startsWith("+") ? VISIT : CHECKOUT;
     }
 
     private static String label(String[] labels, int i) {
         return labels != null && i < labels.length ? labels[i] : null;
     }
 
-    private static void drawRow(Frame f, Scoreboard.Player p, int index, int x0, int y0, int w, int rowH, boolean bright, String label) {
+    private static void drawRow(Frame f, Scoreboard.Player p, int index, int x0, int y0, int w, int rowH, boolean bright, String label, boolean md) {
         String score = Integer.toString(p.score);
         String legs = Integer.toString(Math.min(p.legs, 99));
         PixelFont small = PixelFont.SMALL;
@@ -110,7 +134,7 @@ public final class Renderer {
         int scoreX = w - (showLegs ? legsW : 1) - scoreW + (showLegs ? 0 : 1);
         int scoreY = y0 + (rowH - scoreH) / 2;
 
-        int color = dim(PLAYER_COLORS[index % PLAYER_COLORS.length], bright);
+        int color = md ? (pulse ? PULSE_A : PULSE_B) : dim(PLAYER_COLORS[index % PLAYER_COLORS.length], bright);
         sf.draw(f, score, scoreX, scoreY, ss, color);
 
         if (showLegs) {
@@ -137,11 +161,15 @@ public final class Renderer {
         }
         if (nf == null && small.h <= nameMaxH && small.advance(1) * 2 - 1 <= nameRoom) nf = small;
         if (nf == null) return;
+        // Entered darts are long: use the small font if they don't fit.
+        if (label != null && nf.width(name, ns) > nameRoom && small.width(name, 1) <= nameRoom && small.h <= nameMaxH) {
+            nf = small; ns = 1;
+        }
 
         String shown = fit(nf, name, ns, nameRoom);
         int blockH = nf.h * ns + (withCheckout ? small.h + 1 : 0);
         int ny = y0 + (rowH - blockH) / 2;
-        nf.draw(f, shown, markerW, ny, ns, label != null ? VISIT : dim(NAME, bright));
+        nf.draw(f, shown, markerW, ny, ns, label != null ? labelColor(label) : dim(NAME, bright));
 
         if (withCheckout) {
             String c = fit(small, co, 1, nameRoom);
@@ -150,7 +178,7 @@ public final class Renderer {
     }
 
     /** Top row: whose turn + remaining score. Bottom row: the checkout, e.g. "T20 T13 D16". */
-    private static void drawCheckout(Frame f, Scoreboard.Player p, int index, int w, int h, String label) {
+    private static void drawCheckout(Frame f, Scoreboard.Player p, int index, int w, int h, String label, boolean md) {
         PixelFont big = PixelFont.BIG;
         PixelFont small = PixelFont.SMALL;
         int rowH = h / 2;
@@ -160,9 +188,11 @@ public final class Renderer {
         int scoreW = big.width(score, 1);
         int scoreX = w - 1 - scoreW;
         int y1 = (rowH - big.h) / 2;
-        big.draw(f, score, scoreX, y1, 1, PLAYER_COLORS[index % PLAYER_COLORS.length]);
-        String name = fit(big, label != null ? label : shortName(p.name), 1, scoreX - 3);
-        big.draw(f, name, 0, y1, 1, label != null ? VISIT : NAME);
+        big.draw(f, score, scoreX, y1, 1, md ? (pulse ? PULSE_A : PULSE_B) : PLAYER_COLORS[index % PLAYER_COLORS.length]);
+        String text = label != null ? label : shortName(p.name);
+        PixelFont nf = big.width(text, 1) <= scoreX - 3 || label == null ? big : small;
+        String name = fit(nf, text, 1, scoreX - 3);
+        nf.draw(f, name, 0, y1 + (big.h - nf.h) / 2, 1, label != null ? labelColor(label) : NAME);
 
         // Row 2: one group per dart, biggest font + widest gap that fits.
         // A dart written as "~T20" keeps its place but isn't drawn (for the reveal animation).

@@ -26,7 +26,7 @@ public final class Quips {
     }
 
     /** "en", "sk" or "mix". */
-    public volatile String language = "mix";
+    public volatile String language = "en";
     /** Chance (0..1) of a comment after an ordinary visit. */
     public volatile double chance = 0.4;
     /** At least this long between ordinary comments. */
@@ -156,8 +156,9 @@ public final class Quips {
         return saidThisLeg.put(key, true) == null;
     }
 
+    /** Hlášky are English only now (read by the recorded voice). */
     private boolean slovakNow() {
-        return "sk".equals(language) || ("mix".equals(language) && rnd.nextBoolean());
+        return false;
     }
 
     private Quip lang(String en, String sk) {
