@@ -59,6 +59,40 @@ public final class Scoreboard {
     /** Text under the winner's name instead of "WINS 2-1" (e.g. "121 OUT!"). */
     public String winnerLine;
 
+    /** A copy where one player's score and checkout are replaced (for animations). */
+    public Scoreboard withPlayer(int idx, int score, String checkout) {
+        Scoreboard c = new Scoreboard();
+        for (int i = 0; i < players.size(); i++) {
+            Player p = players.get(i);
+            Player q = new Player(p.name, i == idx ? score : p.score, p.legs, i == idx ? checkout : p.checkout, p.active);
+            q.lastScore = p.lastScore;
+            q.darts = p.darts;
+            q.lastBust = p.lastBust;
+            c.players.add(q);
+        }
+        c.legsToWin = legsToWin;
+        c.cricket = cricket;
+        for (int k = 0; k < 2; k++) c.markIcons[k] = markIcons[k].clone();
+        c.game121 = game121;
+        c.round = round; c.rounds = rounds; c.dartsLeft = dartsLeft;
+        c.highest = highest; c.streak = streak; c.safehouse = safehouse;
+        return c;
+    }
+
+    /** A copy where only this player is marked as at the oche (and no checkout is shown). */
+    public Scoreboard withActive(int idx) {
+        Scoreboard c = withPlayer(-1, 0, "");
+        for (int i = 0; i < c.players.size(); i++) {
+            Player p = c.players.get(i);
+            Player q = new Player(p.name, p.score, p.legs, "", i == idx);
+            q.lastScore = p.lastScore;
+            q.darts = p.darts;
+            q.lastBust = p.lastBust;
+            c.players.set(i, q);
+        }
+        return c;
+    }
+
     public boolean isEmpty() {
         return players.isEmpty() && winner == null && !bullUp;
     }

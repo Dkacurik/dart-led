@@ -14,7 +14,6 @@ public final class Renderer {
     private static final int NAME = 0xFFFFFF;
     private static final int LEGS = 0x40FF40;
     private static final int CHECKOUT = 0xFFE020;
-    private static final int MARKER = 0xFFFFFF;
     private static final int FINISH = 0x40FF40;   // the finishing double
     private static final int GOLD = 0xFFC814;
     private static final int VISIT = 0x40FF40;     // "+60" shown after a visit
@@ -93,7 +92,7 @@ public final class Renderer {
         String legs = Integer.toString(Math.min(p.legs, 99));
         PixelFont small = PixelFont.SMALL;
 
-        int markerW = 2;                                   // 1px bar + 1px gap
+        int markerW = 0;                                   // no turn bar: the waiting player is dimmed
         int legsW = small.width(legs, 1) + 1;              // 1px gap + digits, flush right
         boolean showLegs = rowH >= small.h;
 
@@ -124,10 +123,6 @@ public final class Renderer {
         String name = label != null ? label : shortName(p.name);
         // The turn bar needs 2px; drop it if a long name wouldn't fit otherwise
         // (the waiting player's row is dimmed anyway).
-        if (PixelFont.BIG.width(name, 1) + markerW + 2 > scoreX && PixelFont.BIG.width(name, 1) + 2 <= scoreX) markerW = 0;
-        if (p.active && markerW > 0) {
-            f.fillRect(x0, y0 + (rowH - scoreH) / 2, 1, scoreH, MARKER);
-        }
         int nameRoom = scoreX - markerW - 2;
         String co = p.active ? p.checkout.toUpperCase() : "";
 
@@ -165,26 +160,27 @@ public final class Renderer {
         int scoreW = big.width(score, 1);
         int scoreX = w - 1 - scoreW;
         int y1 = (rowH - big.h) / 2;
-        f.fillRect(0, y1, 1, big.h, MARKER);
         big.draw(f, score, scoreX, y1, 1, PLAYER_COLORS[index % PLAYER_COLORS.length]);
-        String name = fit(big, label != null ? label : shortName(p.name), 1, scoreX - 2 - 3);
-        big.draw(f, name, 2, y1, 1, label != null ? VISIT : NAME);
+        String name = fit(big, label != null ? label : shortName(p.name), 1, scoreX - 3);
+        big.draw(f, name, 0, y1, 1, label != null ? VISIT : NAME);
 
         // Row 2: one group per dart, biggest font + widest gap that fits.
+        // A dart written as "~T20" keeps its place but isn't drawn (for the reveal animation).
         String[] darts = p.checkout.trim().toUpperCase().split("\\s+");
         PixelFont[] fonts = {big, big, big, small, small};
         int[] gaps = {5, 4, 3, 4, 2};
         for (int k = 0; k < fonts.length; k++) {
             PixelFont font = fonts[k];
             int total = gaps[k] * (darts.length - 1);
-            for (String d : darts) total += font.width(d, 1);
+            for (String d : darts) total += font.width(d.replace("~", ""), 1);
             if (total > w) continue;
             int x = (w - total) / 2;
             int y = rowH + (h - rowH - font.h + 1) / 2;
             for (int i = 0; i < darts.length; i++) {
+                String d = darts[i].replace("~", "");
                 int color = i == darts.length - 1 ? FINISH : CHECKOUT;
-                font.draw(f, darts[i], x, y, 1, color);
-                x += font.width(darts[i], 1) + gaps[k];
+                if (!darts[i].startsWith("~")) font.draw(f, d, x, y, 1, color);
+                x += font.width(d, 1) + gaps[k];
             }
             return;
         }
@@ -279,9 +275,8 @@ public final class Renderer {
             int y = i * rowH + (rowH - big.h) / 2;
             int dw = big.width(dist, 1);
             big.draw(f, dist, w - dw, y, 1, dim(allThrown && i == best ? GOLD : DIST, bright));
-            if (i == sb.bullActive && !allThrown) f.fillRect(0, y, 1, big.h, MARKER);
-            String name = fit(big, shortName(sb.bullNames.get(i)), 1, w - dw - 2 - 3);
-            big.draw(f, name, 2, y, 1, dim(allThrown && i == best ? GOLD : NAME, bright));
+            String name = fit(big, shortName(sb.bullNames.get(i)), 1, w - dw - 3);
+            big.draw(f, name, 0, y, 1, dim(allThrown && i == best ? GOLD : NAME, bright));
         }
     }
 

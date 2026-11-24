@@ -239,12 +239,11 @@ public final class Moments {
         for (int i = 0; i < now.players.size(); i++) {
             Scoreboard.Player a = before.players.get(i), b = now.players.get(i);
             if (b.legs == a.legs + 1) {
-                if (a.score >= 100 && a.score <= 170) {
-                    List<Step> s = new ArrayList<>(highFinish(a.score, w, h));
-                    s.addAll(gameShot(b.name, w, h));
-                    return s;
-                }
-                return gameShot(b.name, w, h);
+                List<Step> s = new ArrayList<>();
+                if (a.score >= 100 && a.score <= 170) s.addAll(highFinish(a.score, w, h));
+                s.addAll(gameShot(b.name, w, h));
+                s.addAll(legsScore(now, w, h));
+                return s;
             }
         }
         for (int i = 0; i < now.players.size(); i++) {
@@ -291,6 +290,94 @@ public final class Moments {
             if (visit >= 100 && visit < 180) return ton(b.name, visit, w, h);
         }
         return null;
+    }
+
+    /**
+     * The score ticks down to its new value after a visit, with "-55" in place of the name.
+     * Empty when the change can't be seen on the panel (e.g. the other player's checkout is shown).
+     */
+    public static List<Step> scoreRoll(Scoreboard now, int idx, int from, String label, int w, int h) {
+        List<Step> s = new ArrayList<>();
+        Scoreboard.Player p = now.players.get(idx);
+        int to = p.score;
+        String[] labels = new String[now.players.size()];
+        labels[idx] = label;
+        Frame last = Renderer.render(now, w, h, labels);
+        Frame first = Renderer.render(now.withPlayer(idx, from, p.checkout), w, h, labels);
+        if (java.util.Arrays.equals(first.px, last.px)) return s;
+        // While it counts down, the player who threw stays bright (the turn has already passed).
+        Scoreboard lit = now.withActive(idx);
+        double[] ease = {0, 0.35, 0.6, 0.78, 0.9, 0.97, 1};
+        for (double e : ease) {
+            int v = (int) Math.round(from + (to - from) * e);
+            s.add(new Step(Renderer.render(lit.withPlayer(idx, v, ""), w, h, labels), e == 1 ? 350 : 80));
+        }
+        return s;
+    }
+
+    /** Legs that have been announced as "on a finish" (once per player per leg). */
+    private static final java.util.Set<String> finishShown = new java.util.HashSet<>();
+
+    /**
+     * A player at the oche can finish for the first time this leg: the checkout darts appear
+     * one by one and the finishing double blinks.
+     */
+    public static List<Step> checkoutReveal(Scoreboard before, Scoreboard now, int w, int h) {
+        if (now.game121 || now.cricket || h >= 24) return null;
+        int legs = 0;
+        for (Scoreboard.Player p : now.players) legs += p.legs;
+        for (int i = 0; i < now.players.size(); i++) {
+            Scoreboard.Player p = now.players.get(i);
+            if (!p.active || p.checkout.isEmpty()) continue;
+            String key = p.name + "|" + legs;
+            if (finishShown.contains(key)) return null;
+            finishShown.add(key);
+            boolean wasShown = false;
+            for (Scoreboard.Player b : before.players) {
+                if (b.name.equals(p.name) && b.active && !b.checkout.isEmpty()) wasShown = true;
+            }
+            if (wasShown) return null;
+            String[] darts = p.checkout.trim().split("\\s+");
+            List<Step> s = new ArrayList<>();
+            for (int k = 0; k < 2; k++) {
+                s.add(new Step(lines(w, h, "CHECKOUT", GREEN, Integer.toString(p.score), GOLD), 300));
+                s.add(new Step(new Frame(w, h), 100));
+            }
+            for (int k = 1; k <= darts.length; k++) {
+                s.add(new Step(Renderer.render(now.withPlayer(i, p.score, hideFrom(darts, k)), w, h), 280));
+            }
+            for (int k = 0; k < 3; k++) {
+                s.add(new Step(Renderer.render(now.withPlayer(i, p.score, hideFrom(darts, darts.length - 1)), w, h), 160));
+                s.add(new Step(Renderer.render(now, w, h), 260));
+            }
+            return s;
+        }
+        return null;
+    }
+
+    /** The checkout with darts from index k on kept in place but hidden: "T20 ~T20 ~BULL". */
+    private static String hideFrom(String[] darts, int k) {
+        StringBuilder b = new StringBuilder();
+        for (int i = 0; i < darts.length; i++) {
+            if (b.length() > 0) b.append(' ');
+            b.append(i >= k ? "~" : "").append(darts[i]);
+        }
+        return b.toString();
+    }
+
+    /** Legs score after a leg in a two-player match: "LEGS" / "1 - 0". */
+    public static List<Step> legsScore(Scoreboard now, int w, int h) {
+        List<Step> s = new ArrayList<>();
+        if (now.players.size() != 2) return s;
+        int a = now.players.get(0).legs, b = now.players.get(1).legs;
+        String score = a + " - " + b;
+        s.add(new Step(lines(w, h, "LEGS", WHITE, "", GOLD), 300));
+        for (int k = 0; k < 3; k++) {
+            s.add(new Step(lines(w, h, "LEGS", WHITE, score, k % 2 == 0 ? GOLD : CYAN), 300));
+        }
+        String n1 = Renderer.shortName(now.players.get(0).name), n2 = Renderer.shortName(now.players.get(1).name);
+        s.add(new Step(lines(w, h, n1 + " " + a, a >= b ? GOLD : WHITE, n2 + " " + b, b >= a ? GOLD : WHITE), 2000));
+        return s;
     }
 
     /**

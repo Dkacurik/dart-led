@@ -210,6 +210,26 @@ public final class DartApp extends Application {
         int[] visit = Moments.lastVisit(before, sb);
         // Call the score first ("Forty five!"), then the joke / comment follows.
         boolean scoreCalled = narratorOn() && callScores() && visit != null && callScore(visit[1], moment);
+        if (moment == null && momentsOn()) {
+            // Smaller animations: the score ticking down, and the checkout appearing.
+            int[] s = size();
+            List<Moments.Step> small = new java.util.ArrayList<>();
+            if (visit != null && visit[1] > 0 && visit[0] < before.players.size()) {
+                small.addAll(Moments.scoreRoll(sb, visit[0], before.players.get(visit[0]).score,
+                        visitLabel(sb, visit[1]), s[0], s[1]));
+            }
+            List<Moments.Step> reveal = Moments.checkoutReveal(before, sb, s[0], s[1]);
+            if (reveal != null) small.addAll(reveal);
+            if (!small.isEmpty()) {
+                if (narratorOn()) speakTurn(before, sb, visit, scoreCalled);
+                if (talk && quip == null) quip = quips.afterVisit(before, sb, System.currentTimeMillis());
+                pendingQuip = quip;
+                startFlash(visit);
+                momentInterrupts = !scoreCalled;
+                play(small);
+                return;
+            }
+        }
         if (moment != null) {
             pendingQuip = quip;
             momentInterrupts = !scoreCalled;
@@ -219,15 +239,23 @@ public final class DartApp extends Application {
         if (narratorOn()) speakTurn(before, sb, visit, scoreCalled);
         if (talk && quip == null) quip = quips.afterVisit(before, sb, System.currentTimeMillis());
         if (quip != null) narrator.say(quip.text, quip.slovak, false);
-        if (visit != null && visit[1] > 0) {
-            flashIdx = visit[0];
-            flashText = "+" + visit[1];
-            flashUntil = System.currentTimeMillis() + 3500;
-            anim.schedule(() -> {
-                if (System.currentTimeMillis() >= flashUntil) redraw();
-            }, 3600, TimeUnit.MILLISECONDS);
-        }
+        startFlash(visit);
         if (!playing) redraw();
+    }
+
+    /** "-55" in place of the name for a few seconds after a visit ("+" in Cricket, where points go up). */
+    private void startFlash(int[] visit) {
+        if (visit == null || visit[1] <= 0) return;
+        flashIdx = visit[0];
+        flashText = visitLabel(board, visit[1]);
+        flashUntil = System.currentTimeMillis() + 3500;
+        anim.schedule(() -> {
+            if (System.currentTimeMillis() >= flashUntil) redraw();
+        }, 3600, TimeUnit.MILLISECONDS);
+    }
+
+    private static String visitLabel(Scoreboard sb, int points) {
+        return (sb.cricket ? "+" : "-") + points;
     }
 
     // ------------------------------------------------------------------ narrator
