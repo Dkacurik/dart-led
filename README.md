@@ -26,7 +26,7 @@ Setup:
 2. DartCounter: use **single-dart input** (SINGLE / DOUBLE / TRIPLE + numbers, then SUBMIT).
 3. Phone: install `DartCam.apk`, allow the camera, put phone and tablet on the same Wi-Fi.
    DartCam finds the tablet by itself (the address can be typed in as a fallback: tap the status line).
-4. Fix the phone so it can't move, pull the darts out of the board and tap **Calibrate**. Tap **Auto**: DartCam finds the board by itself (the first time it tries right away) and sets the zoom
+4. Fix the phone so it can't move, pull the darts out of the board and tap **⚙** (calibration). Tap **Auto**: DartCam finds the board by itself (the first time it tries right away) and sets the zoom
    so the board fills the picture (zooming uses more of the camera sensor, so darts are seen sharper;
    if the zoom is too far in, it zooms out and looks again). The zoom is kept for the next start.
    Check that **20 is at the top** and the green wireframe sits on the wires, then tap **Done**.
@@ -43,7 +43,8 @@ Setup:
    the number is **re-checked in that zoom**; the hint says when the zoom corrected the number, and the
    close-up gets a yellow frame with "close – check" when the tip sits within ~1 mm of a wire. Tap the
    close-up to hide it.
-   Buttons: **Undo** (last dart), **Miss** (dart missed the board or bounced out – changes outside the scoring area, e.g. light flicker on the number ring, are ignored, so misses are entered with this button), **Board clear ▶** (submit
+   Screen: status chips (tablet link, calibration; **⚙** opens calibration), player and remaining score, the visit's 3 darts in big tiles with the total (`*` = corrected by the zoom, yellow frame = close to a wire), camera picture, then big buttons.
+   Buttons: **UNDO** (last dart), **MISS** (dart missed the board or bounced out – changes outside the scoring area, e.g. light flicker on the number ring, are ignored, so misses are entered with this button), **NEXT ▶** (submit
    when the takeout was not noticed). A wrong dart can also be fixed directly in DartCounter.
 
 Moving the phone or changing the zoom needs a new calibration.

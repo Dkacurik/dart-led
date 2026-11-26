@@ -9,7 +9,11 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
+import android.content.res.ColorStateList;
 import android.graphics.Color;
+import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.RippleDrawable;
 import android.graphics.Matrix;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
@@ -31,7 +35,6 @@ import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.EditText;
-import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.SeekBar;
 import android.widget.TextView;
@@ -79,8 +82,18 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
 
     private SharedPreferences prefs;
     private BoardView boardView;
-    private TextView linkText, gameText, hintText;
-    private LinearLayout playBar, calBar;
+    private TextView tabletChip, calChip, playerName, playerScore, visitTotal, hintText;
+    private final TextView[] dartSlots = new TextView[3];
+    private LinearLayout playerRow, visitPanel, playBar, calBar;
+    private boolean linkConnected;
+    /** Per dart of the visit: did the zoom re-check correct it / is it close to a wire. */
+    private final List<boolean[]> visitFlags = new ArrayList<>();
+
+    // Colours of the play screen.
+    private static final int C_BG = Color.rgb(16, 18, 22), C_CARD = Color.rgb(32, 36, 44), C_TEXT = Color.WHITE,
+            C_DIM = Color.rgb(150, 156, 168), C_GREEN = Color.rgb(46, 160, 90), C_RED = Color.rgb(200, 64, 64),
+            C_GREY = Color.rgb(70, 76, 88), C_ORANGE = Color.rgb(240, 150, 60), C_BLUE = Color.rgb(60, 130, 230),
+            C_YELLOW = Color.rgb(250, 210, 60);
     private SeekBar zoomBar;
     private TabletLink link;
     private Camera camera;
@@ -194,38 +207,82 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
     // ---------------- UI ----------------
 
     private void buildUi() {
-        FrameLayout root = new FrameLayout(this);
-        root.setBackgroundColor(Color.BLACK);
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundColor(C_BG);
+        root.setPadding(dp(10), dp(30), dp(10), dp(14));
+
+        // 1. Status strip: tablet link, calibration, settings.
+        LinearLayout status = new LinearLayout(this);
+        status.setOrientation(LinearLayout.HORIZONTAL);
+        status.setGravity(Gravity.CENTER_VERTICAL);
+        tabletChip = chip(status);
+        tabletChip.setOnClickListener(v -> askTabletAddress());
+        calChip = chip(status);
+        calChip.setOnClickListener(v -> { if (!boardView.calibrating()) startCalibration(); });
+        View spacer = new View(this);
+        status.addView(spacer, new LinearLayout.LayoutParams(0, 1, 1));
+        TextView gear = new TextView(this);
+        gear.setText("⚙");
+        gear.setTextSize(28);
+        gear.setTextColor(C_TEXT);
+        gear.setPadding(dp(14), 0, dp(6), 0);
+        gear.setOnClickListener(v -> { if (!boardView.calibrating()) startCalibration(); });
+        status.addView(gear);
+        root.addView(status);
+
+        // 2. Player and remaining score (from DartCounter via the tablet).
+        playerRow = new LinearLayout(this);
+        playerRow.setOrientation(LinearLayout.HORIZONTAL);
+        playerRow.setGravity(Gravity.CENTER_VERTICAL);
+        playerRow.setPadding(dp(4), dp(8), dp(4), dp(4));
+        playerName = text(playerRow, "", 22, C_TEXT, true);
+        playerName.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        playerScore = text(playerRow, "", 36, C_TEXT, true);
+        root.addView(playerRow);
+
+        // 3. The darts of this visit, big enough to read from the throwing line.
+        visitPanel = new LinearLayout(this);
+        visitPanel.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout slots = new LinearLayout(this);
+        slots.setOrientation(LinearLayout.HORIZONTAL);
+        for (int i = 0; i < 3; i++) {
+            TextView t = new TextView(this);
+            t.setGravity(Gravity.CENTER);
+            t.setTextSize(46);
+            t.setMaxLines(1);
+            t.setAutoSizeTextTypeUniformWithConfiguration(20, 46, 2, android.util.TypedValue.COMPLEX_UNIT_SP);
+            t.setTypeface(Typeface.DEFAULT_BOLD);
+            t.setTextColor(C_TEXT);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(92), 1);
+            lp.setMargins(dp(4), dp(4), dp(4), dp(4));
+            slots.addView(t, lp);
+            dartSlots[i] = t;
+        }
+        visitPanel.addView(slots);
+        visitTotal = text(visitPanel, "", 20, C_DIM, true);
+        visitTotal.setPadding(dp(6), dp(2), dp(6), 0);
+        root.addView(visitPanel);
+        hintText = text(root, "", 15, C_YELLOW, false);
+        hintText.setPadding(dp(6), dp(4), dp(6), dp(6));
+
+        // 4. Camera picture with the wireframe and the close-up.
         boardView = new BoardView(this);
         boardView.setCalibrationListener(pts -> {
             // Tapping by hand after a failed Auto: back to the step-by-step hints.
             if (autoMsg != null && autoMsg.startsWith("Auto:")) autoMsg = null;
             onCalibrationPoints(pts);
         });
-        root.addView(boardView, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        root.addView(boardView, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
 
-        LinearLayout top = new LinearLayout(this);
-        top.setOrientation(LinearLayout.VERTICAL);
-        top.setPadding(dp(12), dp(36), dp(12), dp(8));
-        top.setBackgroundColor(Color.argb(150, 0, 0, 0));
-        linkText = label(top, "", 13);
-        linkText.setOnClickListener(v -> askTabletAddress());
-        gameText = label(top, "", 22);
-        gameText.setTypeface(gameText.getTypeface(), android.graphics.Typeface.BOLD);
-        hintText = label(top, "", 14);
-        hintText.setTextColor(Color.YELLOW);
-        root.addView(top, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP));
-
+        // 5. Big buttons.
         LinearLayout bottom = new LinearLayout(this);
         bottom.setOrientation(LinearLayout.VERTICAL);
-        bottom.setPadding(dp(8), dp(8), dp(8), dp(24));
-        bottom.setBackgroundColor(Color.argb(150, 0, 0, 0));
-
+        bottom.setPadding(0, dp(8), 0, 0);
         playBar = row(bottom);
-        button(playBar, "Undo", v -> undo());
-        button(playBar, "Miss", v -> manualMiss());
-        button(playBar, "Board clear ▶", v -> boardClear());
-        button(playBar, "Calibrate", v -> startCalibration());
+        bigButton(playBar, "UNDO", C_GREY, v -> undo());
+        bigButton(playBar, "MISS", C_RED, v -> manualMiss());
+        bigButton(playBar, "NEXT ▶", C_GREEN, v -> boardClear());
 
         calBar = new LinearLayout(this);
         calBar.setOrientation(LinearLayout.VERTICAL);
@@ -263,20 +320,24 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
         button(cr2, "Tablet address", v -> askTabletAddress());
         button(cr2, "Send debug", v -> sendDebug());
 
-        root.addView(bottom, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM));
+        root.addView(bottom);
         setContentView(root);
         showMode();
-        linkText.setText("Looking for Dart LED on the Wi-Fi…");
+        setChip(tabletChip, "Tablet: searching…", C_ORANGE);
     }
 
     private void showMode() {
         boolean cal = boardView.calibrating();
         playBar.setVisibility(cal ? View.GONE : View.VISIBLE);
         calBar.setVisibility(cal ? View.VISIBLE : View.GONE);
+        playerRow.setVisibility(cal ? View.GONE : View.VISIBLE);
+        visitPanel.setVisibility(cal ? View.GONE : View.VISIBLE);
         updateHint();
     }
 
     private void updateHint() {
+        updateStatus();
+        updateVisit();
         if (boardView.calibrating()) {
             int n = calPointCount;
             if (autoRunning) { hintText.setText("Looking for the board…"); return; }
@@ -285,14 +346,62 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
                     + Board.CALIBRATION_LABELS[n] + ". (" + (n + 1) + "/4)");
             else hintText.setText("Drag the yellow circles until the green lines sit on the wires, then tap Done.");
         } else if (pendingCal == null) {
-            hintText.setText("Not calibrated yet – tap Calibrate.");
+            hintText.setText("Not calibrated yet – tap ⚙ and Auto.");
         } else if (paused) {
             hintText.setText("Paused");
         } else {
-            String v = visit.isEmpty() ? "Ready – throw!" : "Visit: " + String.join("  ", visit);
-            if (zoomNote != null && !visit.isEmpty()) v += "\n" + zoomNote;
-            if (calNote != null && System.currentTimeMillis() < calNoteUntil) v += "\n" + calNote;
+            String v = visit.isEmpty() ? "Ready – throw!" : visit.size() == 3 ? "Pull the darts out (or tap NEXT ▶)" : "";
+            if (zoomNote != null && !visit.isEmpty()) v = zoomNote;
+            if (calNote != null && System.currentTimeMillis() < calNoteUntil) v = (v.isEmpty() ? "" : v + "\n") + calNote;
             hintText.setText(v);
+        }
+    }
+
+    /** Status chips: tablet link and calibration. */
+    private void updateStatus() {
+        if (pendingCal == null) setChip(calChip, "Not calibrated", C_RED);
+        else if (autoRunning) setChip(calChip, "Calibrating…", C_BLUE);
+        else if (calNote != null && System.currentTimeMillis() < calNoteUntil) setChip(calChip, "Calibration updated", C_BLUE);
+        else setChip(calChip, "Calibrated", C_GREEN);
+    }
+
+    /** The three dart slots and the visit total. */
+    private void updateVisit() {
+        int total = 0;
+        for (int i = 0; i < 3; i++) {
+            TextView t = dartSlots[i];
+            boolean has = i < visit.size();
+            String label = has ? visit.get(i) : "–";
+            boolean[] f = has && i < visitFlags.size() ? visitFlags.get(i) : new boolean[2];
+            t.setText(has && f[0] ? label + "*" : label);
+            t.setTextColor(has ? C_TEXT : C_DIM);
+            GradientDrawable bg = new GradientDrawable();
+            bg.setColor(C_CARD);
+            bg.setCornerRadius(dp(14));
+            if (has && f[1]) bg.setStroke(dp(3), C_YELLOW);
+            else if (i == visit.size() && visit.size() < 3) bg.setStroke(dp(2), C_GREY); // next dart
+            t.setBackground(bg);
+            if (has) total += points(label);
+        }
+        visitTotal.setText(visit.isEmpty() ? " " : "Visit: " + total + (hasCorrected() ? "    * = corrected by zoom" : ""));
+    }
+
+    private boolean hasCorrected() {
+        for (boolean[] f : visitFlags) if (f[0]) return true;
+        return false;
+    }
+
+    /** Points of a dart label: T20=60, D16=32, S5=5, 25, BULL=50, MISS=0. */
+    static int points(String label) {
+        if (label == null || label.isEmpty() || label.equals("MISS")) return 0;
+        if (label.equals("BULL")) return 50;
+        if (label.equals("25")) return 25;
+        char k = label.charAt(0);
+        try {
+            int n = Integer.parseInt(label.substring(1));
+            return k == 'T' ? 3 * n : k == 'D' ? 2 * n : n;
+        } catch (NumberFormatException e) {
+            return 0;
         }
     }
 
@@ -434,6 +543,7 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
         autoMsg = null;
         autoRunning = false; // a zoom round still waiting ends here
         visit.clear();
+        visitFlags.clear();
         boardView.clearMarks();
         showMode();
     }
@@ -790,6 +900,7 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
                         + String.format(Locale.ROOT, " – close to a wire (%.1f mm), please check", zoom.wireMm);
             }
             visit.add(label);
+            visitFlags.add(new boolean[]{zoom != null && zoom.ok && zoom.changed, zoom != null && zoom.ok && zoom.closeCall});
             boardView.addMark(mx, my, label);
             boardView.setZoom(shot == null ? null : new BoardView.Zoom(shot.crop, shot.x0, shot.y0, shot.scale,
                     mx, my, label, zoom != null && zoom.ok && zoom.closeCall));
@@ -801,6 +912,7 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
             // Darts pulled out: the visit is over.
             link.send("SUBMIT");
             visit.clear();
+        visitFlags.clear();
             boardView.clearMarks();
             buzz(15);
         }
@@ -810,6 +922,7 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
     private void undo() {
         if (visit.isEmpty()) return;
         visit.remove(visit.size() - 1);
+        if (!visitFlags.isEmpty()) visitFlags.remove(visitFlags.size() - 1);
         boardView.removeLastMark();
         link.send("UNDO");
         zoomNote = null;
@@ -821,6 +934,7 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
     private void manualMiss() {
         if (visit.size() >= 3) return;
         visit.add("MISS");
+        visitFlags.add(new boolean[2]);
         link.send("DART MISS");
         detectorTask = () -> { if (detector != null) detector.addManualDart(); };
         updateHint();
@@ -832,6 +946,7 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
         zoomNote = null;
         boardView.setZoom(null);
         visit.clear();
+        visitFlags.clear();
         boardView.clearMarks();
         detectorTask = () -> { if (detector != null) detector.markEmpty(); };
         updateHint();
@@ -849,8 +964,8 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
 
     @Override
     public void onStatus(String status, boolean connected) {
-        linkText.setText((connected ? "● " : "○ ") + status + "   (tap to set address)");
-        linkText.setTextColor(connected ? Color.rgb(120, 255, 120) : Color.rgb(255, 170, 120));
+        linkConnected = connected;
+        setChip(tabletChip, connected ? "Tablet" : "Tablet: " + status, connected ? C_GREEN : C_ORANGE);
     }
 
     @Override
@@ -861,7 +976,9 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
             String name = p.length > 1 ? p[1] : "";
             String score = p.length > 2 ? p[2] : "";
             String typer = p.length > 4 ? p[4] : "";
-            gameText.setText(name.isEmpty() ? "DartCounter: no match on screen" : name + "  " + score);
+            playerName.setText(name.isEmpty() ? "No match in DartCounter" : name);
+            playerName.setTextColor(name.isEmpty() ? C_DIM : C_TEXT);
+            playerScore.setText(name.isEmpty() ? "" : score);
             if (typer.startsWith("off")) {
                 hintText.setText("Dart LED: entering darts into DartCounter is switched off on the tablet.");
             }
@@ -890,6 +1007,60 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
     }
 
     // ---------------- helpers ----------------
+
+    private TextView text(LinearLayout parent, String s, int sp, int color, boolean bold) {
+        TextView t = new TextView(this);
+        t.setText(s);
+        t.setTextSize(sp);
+        t.setTextColor(color);
+        if (bold) t.setTypeface(Typeface.DEFAULT_BOLD);
+        parent.addView(t);
+        return t;
+    }
+
+    /** Rounded status chip with a coloured dot. */
+    private TextView chip(LinearLayout parent) {
+        TextView t = new TextView(this);
+        t.setTextSize(14);
+        t.setTextColor(C_TEXT);
+        t.setPadding(dp(10), dp(6), dp(12), dp(6));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.setMargins(0, 0, dp(6), 0);
+        parent.addView(t, lp);
+        return t;
+    }
+
+    private void setChip(TextView chip, String s, int color) {
+        chip.setText("● " + s);
+        android.text.SpannableString sp = new android.text.SpannableString(chip.getText());
+        sp.setSpan(new android.text.style.ForegroundColorSpan(color), 0, 1, 0);
+        chip.setText(sp);
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(C_CARD);
+        bg.setCornerRadius(dp(16));
+        bg.setStroke(dp(1), color);
+        chip.setBackground(bg);
+    }
+
+    /** Big rounded colour button with a touch ripple. */
+    private Button bigButton(LinearLayout parent, String s, int color, View.OnClickListener l) {
+        Button b = new Button(this);
+        b.setText(s);
+        b.setAllCaps(false);
+        b.setTextSize(20);
+        b.setTypeface(Typeface.DEFAULT_BOLD);
+        b.setTextColor(Color.WHITE);
+        b.setStateListAnimator(null);
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(color);
+        bg.setCornerRadius(dp(14));
+        b.setBackground(new RippleDrawable(ColorStateList.valueOf(Color.argb(70, 255, 255, 255)), bg, null));
+        b.setOnClickListener(l);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(64), 1);
+        lp.setMargins(dp(4), 0, dp(4), 0);
+        parent.addView(b, lp);
+        return b;
+    }
 
     private TextView label(LinearLayout parent, String s, int sp) {
         TextView t = new TextView(this);
