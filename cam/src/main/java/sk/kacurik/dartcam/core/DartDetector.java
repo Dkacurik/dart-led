@@ -83,6 +83,23 @@ public final class DartDetector {
 
     public double[] cameraFoot() { return cameraFoot == null ? null : cameraFoot.clone(); }
 
+    /** Nothing is moving in front of the camera right now (also true while "blocked" after a big change). */
+    public boolean still() { return prev != null && !moving; }
+
+    /**
+     * A slightly better calibration of the same view (tracking smoothing): swap it in but keep the
+     * reference pictures and the darts of the visit.
+     */
+    public void updateCalibration(Homography imgToBoard) {
+        if (this.imgToBoard == null) { setCalibration(imgToBoard); return; }
+        int[] pv = prev, rv = refVisit, re = refEmpty;
+        int still0 = still, darts = dartsInVisit;
+        boolean mv = moving, bl = blocked;
+        setCalibration(imgToBoard);
+        prev = pv; refVisit = rv; refEmpty = re;
+        still = still0; dartsInVisit = darts; moving = mv; blocked = bl;
+    }
+
     /** imgToBoard maps image pixels to board millimetres. Resets the references. */
     public void setCalibration(Homography imgToBoard) {
         this.imgToBoard = imgToBoard;

@@ -66,6 +66,7 @@ import java.util.zip.ZipOutputStream;
 
 import sk.kacurik.dartcam.core.AutoCalibrator;
 import sk.kacurik.dartcam.core.Board;
+import sk.kacurik.dartcam.core.BoardTracker;
 import sk.kacurik.dartcam.core.DartDetector;
 import sk.kacurik.dartcam.core.Homography;
 import sk.kacurik.dartcam.core.TipRefiner;
@@ -119,9 +120,18 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
 
     // Keeping the calibration up to date while playing (analysis thread, except keepCalibrated).
     private volatile boolean keepCalibrated = true;
-    private long lastRecheckMs, lastFailRecordMs;
-    private double[][] recheckCandidate;  // last found points (frame px), adopted when the next run agrees
-    private static final long RECHECK_MS = 3000, RECHECK_CONFIRM_MS = 1000;
+    // Tracking: like a QR scanner, Auto runs on the newest frame every TRACK_MS on its own thread.
+    private static final long TRACK_MS = 400;
+    private final ExecutorService trackThread = Executors.newSingleThreadExecutor();
+    private final java.util.concurrent.atomic.AtomicBoolean trackBusy = new java.util.concurrent.atomic.AtomicBoolean();
+    private final BoardTracker tracker = new BoardTracker();     // tracking thread only
+    private volatile boolean trackerReset = true;                // start the tracker again from pendingCal
+    private volatile Homography pendingSmooth;                   // smoothed calibration for the detector (no reset)
+    private volatile BoardTracker.State trackState = BoardTracker.State.NONE;
+    private volatile String trackReason;
+    private long lastTrackMs;                                    // analysis thread
+    private long lastFailRecordMs, lastCandRecordMs;             // tracking thread
+    private long lastCalSaveMs;                                  // UI thread
 
     // ---- diagnostics: what Auto saw and decided (last few runs), for "Send debug" ----
     private static final class AutoRecord {
@@ -303,12 +313,14 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
         });
         calBar.addView(zoomBar);
         CheckBox keep = new CheckBox(this);
-        keep.setText("Keep calibrated automatically (follows the phone if it moves)");
+        keep.setText("Track the board all the time (follows the phone if it moves)");
         keep.setTextColor(Color.WHITE);
         keepCalibrated = prefs.getBoolean("autoKeep", true);
         keep.setChecked(keepCalibrated);
         keep.setOnCheckedChangeListener((b, on) -> {
             keepCalibrated = on;
+            trackerReset = true;
+            trackState = BoardTracker.State.NONE;
             prefs.edit().putBoolean("autoKeep", on).apply();
         });
         calBar.addView(keep);
@@ -346,7 +358,8 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
                     + Board.CALIBRATION_LABELS[n] + ". (" + (n + 1) + "/4)");
             else hintText.setText("Drag the yellow circles until the green lines sit on the wires, then tap Done.");
         } else if (pendingCal == null) {
-            hintText.setText("Not calibrated yet – tap ⚙ and Auto.");
+            hintText.setText(keepCalibrated ? "Looking for the board… (pull the darts out; or tap ⚙ and Auto)"
+                    : "Not calibrated yet – tap ⚙ and Auto.");
         } else if (paused) {
             hintText.setText("Paused");
         } else {
@@ -359,9 +372,13 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
 
     /** Status chips: tablet link and calibration. */
     private void updateStatus() {
-        if (pendingCal == null) setChip(calChip, "Not calibrated", C_RED);
-        else if (autoRunning) setChip(calChip, "Calibrating…", C_BLUE);
-        else if (calNote != null && System.currentTimeMillis() < calNoteUntil) setChip(calChip, "Calibration updated", C_BLUE);
+        BoardTracker.State ts = trackState;
+        if (autoRunning) setChip(calChip, "Calibrating…", C_BLUE);
+        else if (keepCalibrated && !paused && ts == BoardTracker.State.SEARCHING)
+            setChip(calChip, "Searching board" + (trackReason == null ? "" : ": " + trackReason), C_ORANGE);
+        else if (keepCalibrated && !paused && ts == BoardTracker.State.FOLLOWING) setChip(calChip, "Following…", C_BLUE);
+        else if (pendingCal == null) setChip(calChip, keepCalibrated ? "Looking for the board…" : "Not calibrated", C_RED);
+        else if (keepCalibrated && ts == BoardTracker.State.LOCKED) setChip(calChip, "Board locked", C_GREEN);
         else setChip(calChip, "Calibrated", C_GREEN);
     }
 
@@ -560,58 +577,88 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
         prefs.edit().putString("cal", sb.toString()).apply();
         pendingCal = norm;
         calChanged = true;
+        trackerReset = true;
     }
 
     /**
-     * Analysis thread, while playing: every few seconds, when nothing moves, look for the board again.
-     * A new position is taken only when two runs in a row agree, and (to leave the visit alone)
-     * small shifts only while the board is empty.
+     * Tracking thread: look for the board on this frame and let the tracker decide. Small changes are
+     * smoothed into the detector without resetting it; a moved phone (seen twice) recalibrates.
      */
-    private void recheckCalibration(Bitmap frame) {
-        long now = System.currentTimeMillis();
-        if (now - lastRecheckMs < (recheckCandidate != null ? RECHECK_CONFIRM_MS : RECHECK_MS)) return;
-        lastRecheckMs = now;
-        float[] c = pendingCal;
-        if (c == null) return;
-        int w = frame.getWidth(), h = frame.getHeight();
-        int[] px = new int[w * h];
-        frame.getPixels(px, 0, w, 0, 0, w, h);
-        AutoCalibrator.Result r = AutoCalibrator.find(px, w, h, gravX, -gravY);
-        if (!r.ok()) {
-            recheckCandidate = null;
-            if (now - lastFailRecordMs > 30000) { lastFailRecordMs = now; record(frame, "recheck", r, "failed"); }
-            return;
+    private void track(Bitmap frame, float[] calNow) {
+        try {
+            int w = frame.getWidth(), h = frame.getHeight();
+            if (trackerReset) {
+                trackerReset = false;
+                double[][] p = null;
+                if (calNow != null) {
+                    p = new double[4][];
+                    for (int i = 0; i < 4; i++) p[i] = new double[]{calNow[i * 2] * w, calNow[i * 2 + 1] * h};
+                }
+                tracker.set(p);
+            }
+            int[] px = new int[w * h];
+            frame.getPixels(px, 0, w, 0, 0, w, h);
+            AutoCalibrator.Result r = AutoCalibrator.find(px, w, h, gravX, -gravY);
+            long now = System.currentTimeMillis();
+            if (!r.ok()) {
+                tracker.fail(r.failReason);
+                if (now - lastFailRecordMs > 15000) { lastFailRecordMs = now; record(frame, "track", r, "failed"); }
+            } else {
+                BoardTracker.Update u = tracker.found(r.calPoints);
+                if (u != null && u.jump) {
+                    record(frame, "track", r, String.format(Locale.ROOT, "jump %.1f px", u.moved));
+                    List<float[]> pts = new ArrayList<>();
+                    for (double[] p : u.points) pts.add(new float[]{(float) p[0], (float) p[1]});
+                    double moved = u.moved;
+                    runOnUiThread(() -> applyTrackJump(pts, moved));
+                } else if (u != null) {
+                    float[] norm = new float[8];
+                    for (int i = 0; i < 4; i++) { norm[i * 2] = (float) (u.points[i][0] / w); norm[i * 2 + 1] = (float) (u.points[i][1] / h); }
+                    pendingSmooth = Homography.fromPoints(u.points, Board.CALIBRATION_POINTS);
+                    runOnUiThread(() -> applyTrackSmooth(norm));
+                } else if (tracker.state() == BoardTracker.State.FOLLOWING && now - lastCandRecordMs > 5000) {
+                    lastCandRecordMs = now;
+                    record(frame, "track", r, "candidate (waiting for a second look)");
+                }
+            }
+            trackState = tracker.state();
+            trackReason = tracker.reason();
+            runOnUiThread(this::updateStatus);
+        } catch (Exception ignored) {
+        } finally {
+            trackBusy.set(false);
         }
-        double shift = 0, agree = recheckCandidate == null ? Double.MAX_VALUE : 0;
-        for (int i = 0; i < 4; i++) {
-            shift = Math.max(shift, Math.hypot(r.calPoints[i][0] - c[i * 2] * w, r.calPoints[i][1] - c[i * 2 + 1] * h));
-            if (recheckCandidate != null)
-                agree = Math.max(agree, Math.hypot(r.calPoints[i][0] - recheckCandidate[i][0], r.calPoints[i][1] - recheckCandidate[i][1]));
-        }
-        boolean worth = shift > 3 || shift > 1.0 && detector.dartsInVisit() == 0;
-        if (!worth) { recheckCandidate = null; return; }
-        if (agree > 0.7) { // confirm with the next run
-            recheckCandidate = r.calPoints;
-            record(frame, "recheck", r, String.format(Locale.ROOT, "candidate, shift %.1f px", shift));
-            return;
-        }
-        recheckCandidate = null;
-        record(frame, "recheck", r, String.format(Locale.ROOT, "adopted, shift %.1f px, darts in board %d", shift, detector.dartsInVisit()));
-        List<float[]> pts = new ArrayList<>();
-        for (double[] p : r.calPoints) pts.add(new float[]{(float) p[0], (float) p[1]});
-        double moved = shift;
-        runOnUiThread(() -> {
-            if (boardView.calibrating() || !keepCalibrated) return;
-            saveCalibration(pts);
-            if (moved <= 3) return; // small drift: fixed silently
+    }
+
+    /** UI thread: the board moved – recalibrate (resets the detector's pictures). */
+    private void applyTrackJump(List<float[]> pts, double moved) {
+        if (boardView.calibrating() || !keepCalibrated) return;
+        saveCalibration(pts);
+        lastCalSaveMs = System.currentTimeMillis();
+        if (Double.isNaN(moved) || moved > 5) {
             boardView.clearMarks(); // positions of darts already in the board are no longer valid
             boardView.setZoom(null);
-            calNote = String.format(Locale.ROOT, "Calibration updated (phone moved %.0f px).", moved);
-            calNoteUntil = System.currentTimeMillis() + 5000;
-            hintText.postDelayed(this::updateHint, 5100);
             buzz(20);
-            updateHint();
-        });
+        }
+        calNote = Double.isNaN(moved) ? "Board found – calibrated."
+                : moved > 5 ? String.format(Locale.ROOT, "Board moved %.0f px – following.", moved)
+                : "Calibration adjusted.";
+        calNoteUntil = System.currentTimeMillis() + 4000;
+        hintText.postDelayed(this::updateHint, 4100);
+        updateHint();
+    }
+
+    /** UI thread: a smoothing step; the detector already got it via pendingSmooth. Saved now and then. */
+    private void applyTrackSmooth(float[] norm) {
+        if (boardView.calibrating() || !keepCalibrated) return;
+        pendingCal = norm;
+        long now = System.currentTimeMillis();
+        if (now - lastCalSaveMs > 10000) {
+            lastCalSaveMs = now;
+            StringBuilder sb = new StringBuilder();
+            for (float v : norm) sb.append(String.format(Locale.ROOT, "%.5f,", v));
+            prefs.edit().putString("cal", sb.toString()).apply();
+        }
     }
 
     /**
@@ -799,6 +846,17 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
                 } catch (Exception ignored) { }
             }
         }
+        Homography smooth = pendingSmooth;
+        if (smooth != null) {
+            pendingSmooth = null;
+            if (detector.calibrated() && !paused) {
+                detector.updateCalibration(smooth);
+                try {
+                    Homography b2i = smooth.inverse();
+                    runOnUiThread(() -> { if (!boardView.calibrating()) boardView.setBoardToImage(b2i); });
+                } catch (Exception ignored) { }
+            }
+        }
         if (autoCalRequested) {
             autoCalRequested = false;
             runAutoCalibration(upright);
@@ -815,8 +873,14 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
                 px[i] = (((c >> 16) & 0xff) * 77 + ((c >> 8) & 0xff) * 150 + (c & 0xff) * 29) >> 8;
             }
             ev = detector.feed(px);
-            if (ev == null && keepCalibrated && detector.idle()) recheckCalibration(upright);
-            else if (ev != null) recheckCandidate = null;
+        }
+        // Tracking: whenever nothing moves in front of the board (or it isn't calibrated yet).
+        long nowMs = System.currentTimeMillis();
+        if (!paused && keepCalibrated && ev == null && (!detector.calibrated() || detector.still())
+                && nowMs - lastTrackMs >= TRACK_MS && trackBusy.compareAndSet(false, true)) {
+            lastTrackMs = nowMs;
+            float[] calNow = pendingCal;
+            trackThread.execute(() -> track(upright, calNow));
         }
         ZoomShot zoom = null;
         if (ev != null && ev.type == DartDetector.Type.DART && beforeFull != null) {

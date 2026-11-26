@@ -26,6 +26,7 @@ jobs:
           java -cp "$RUNNER_TEMP/sim" SimTest
           java -cp "$RUNNER_TEMP/sim" AutoCalTest
           java -cp "$RUNNER_TEMP/sim" RefineTest
+          java -cp "$RUNNER_TEMP/sim" TrackerTest
       - name: Build
         run: ./gradlew :app:assembleDebug :cam:assembleDebug --no-daemon --stacktrace
       - name: Publish download
