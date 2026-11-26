@@ -42,6 +42,9 @@ import android.widget.TextView;
 import androidx.activity.ComponentActivity;
 import androidx.camera.core.Camera;
 import androidx.camera.core.CameraSelector;
+import androidx.camera.core.FocusMeteringAction;
+import androidx.camera.core.MeteringPoint;
+import androidx.camera.core.SurfaceOrientedMeteringPointFactory;
 import androidx.camera.core.ImageAnalysis;
 import androidx.camera.core.ImageProxy;
 import androidx.camera.core.ZoomState;
@@ -126,6 +129,9 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
     private final java.util.concurrent.atomic.AtomicBoolean trackBusy = new java.util.concurrent.atomic.AtomicBoolean();
     private final BoardTracker tracker = new BoardTracker();     // tracking thread only
     private volatile boolean trackerReset = true;                // start the tracker again from pendingCal
+    private volatile float[] trackHint;                          // tapped "the board is here" (frame px), until locked
+    private volatile boolean boardFocused;                       // focus/exposure already set on the locked board
+    private volatile ImageAnalysis analysisUseCase;
     private volatile Homography pendingSmooth;                   // smoothed calibration for the detector (no reset)
     private volatile BoardTracker.State trackState = BoardTracker.State.NONE;
     private volatile String trackReason;
@@ -283,6 +289,7 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
             if (autoMsg != null && autoMsg.startsWith("Auto:")) autoMsg = null;
             onCalibrationPoints(pts);
         });
+        boardView.setTapListener(this::onFrameTap);
         root.addView(boardView, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
 
         // 5. Big buttons.
@@ -578,6 +585,58 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
         pendingCal = norm;
         calChanged = true;
         trackerReset = true;
+        boardFocused = false;
+    }
+
+    /** Tap on the camera picture while playing: focus there and look for the board there. */
+    private void onFrameTap(float fx, float fy) {
+        trackHint = new float[]{fx, fy};
+        lastTrackMs = 0; // look right away
+        focusAt(fx, fy, 0.15f);
+        boardFocused = false; // after locking, focus on the whole board again
+        hintText.setText("Focusing here – looking for the board…");
+    }
+
+    /** Focus and exposure on the locked board (centre = bull, area = the board). */
+    private void focusOnBoard() {
+        float[] c = pendingCal;
+        if (c == null || frameW == 0) return;
+        double[][] img = new double[4][];
+        for (int i = 0; i < 4; i++) img[i] = new double[]{c[i * 2] * frameW, c[i * 2 + 1] * frameH};
+        try {
+            Homography b2i = Homography.fromPoints(Board.CALIBRATION_POINTS, img);
+            double[] bull = b2i.map(0, 0);
+            double r = 0;
+            for (double[] p : img) r += Math.hypot(p[0] - bull[0], p[1] - bull[1]) / 4;
+            float size = (float) Math.max(0.1, Math.min(0.6, 1.6 * r / Math.max(frameW, frameH)));
+            focusAt((float) bull[0], (float) bull[1], size);
+        } catch (Exception ignored) { }
+    }
+
+    /**
+     * Focus + exposure at a point of the upright analysis picture. CameraX wants it in the camera
+     * buffer's own orientation, so the rotation applied in analyze() is undone here.
+     */
+    private void focusAt(float fx, float fy, float size) {
+        Bitmap full = lastFull;
+        ImageAnalysis ia = analysisUseCase;
+        if (full == null || camera == null || ia == null || frameW == 0) return;
+        int sw = full.getWidth(), sh = full.getHeight(), rot = lastFullRot;
+        float sc = (float) Math.max(sw, sh) / Math.max(frameW, frameH);
+        float u = fx * sc, v = fy * sc; // upright full-res picture
+        float x, y;
+        switch (rot) {
+            case 90: x = v; y = sh - u; break;
+            case 180: x = sw - u; y = sh - v; break;
+            case 270: x = sw - v; y = u; break;
+            default: x = u; y = v;
+        }
+        try {
+            MeteringPoint p = new SurfaceOrientedMeteringPointFactory(sw, sh, ia).createPoint(x, y, size);
+            FocusMeteringAction a = new FocusMeteringAction.Builder(p, FocusMeteringAction.FLAG_AF | FocusMeteringAction.FLAG_AE)
+                    .disableAutoCancel().build();
+            camera.getCameraControl().startFocusAndMetering(a);
+        } catch (Exception ignored) { }
     }
 
     /**
@@ -598,7 +657,16 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
             }
             int[] px = new int[w * h];
             frame.getPixels(px, 0, w, 0, 0, w, h);
-            AutoCalibrator.Result r = AutoCalibrator.find(px, w, h, gravX, -gravY);
+            // Where to look first: the tapped point, else the bull of the tracked calibration.
+            double hx = Double.NaN, hy = Double.NaN;
+            float[] tap = trackHint;
+            double[][] tp = tracker.points();
+            if (tap != null) { hx = tap[0]; hy = tap[1]; }
+            else if (tp != null) {
+                double[] bull = Homography.fromPoints(Board.CALIBRATION_POINTS, tp).map(0, 0);
+                hx = bull[0]; hy = bull[1];
+            }
+            AutoCalibrator.Result r = AutoCalibrator.find(px, w, h, gravX, -gravY, hx, hy);
             long now = System.currentTimeMillis();
             if (!r.ok()) {
                 tracker.fail(r.failReason);
@@ -623,6 +691,10 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
             }
             trackState = tracker.state();
             trackReason = tracker.reason();
+            if (r.ok() && trackState == BoardTracker.State.LOCKED) {
+                trackHint = null; // the tap has done its job
+                if (!boardFocused) { boardFocused = true; runOnUiThread(this::focusOnBoard); }
+            }
             runOnUiThread(this::updateStatus);
         } catch (Exception ignored) {
         } finally {
@@ -792,6 +864,7 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
                         .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
                         .build();
                 analysis.setAnalyzer(analysisThread, this::analyze);
+                analysisUseCase = analysis;
                 provider.unbindAll();
                 camera = provider.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, analysis);
                 float zr = prefs.getFloat("zoomRatio", -1);

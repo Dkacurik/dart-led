@@ -198,6 +198,41 @@ public class AutoCalTest {
                 jitter < 0.5 ? "ok  " : "FAIL", jitter);
         if (jitter >= 0.5) failures++;
 
+        // Target hint (tap on the screen): up to ±40 px off the bull gives the same result; with a decoy
+        // (a second, smaller board picture beside the board) the hint decides which one is taken.
+        {
+            SimTest.camera(-60, 260, -560, 430, 0);
+            Homography b2i = SimTest.boardToImg();
+            int[] img = render(b2i.inverse(), 0.3, new double[]{0.9, 0.9, 0.85});
+            double[] bull = b2i.map(0, 0);
+            double up0 = -SimTest.R[0][1], up1 = -SimTest.R[1][1];
+            AutoCalibrator.Result plain = AutoCalibrator.find(img, W, H, up0, up1);
+            for (double[] off : new double[][]{{40, 0}, {-28, 28}, {0, -40}}) {
+                AutoCalibrator.Result hr = AutoCalibrator.find(img, W, H, up0, up1, bull[0] + off[0], bull[1] + off[1]);
+                boolean good = plain.ok() && hr.ok() && BoardTracker.maxDist(plain.calPoints, hr.calPoints) < 0.5;
+                System.out.printf(Locale.ROOT, "%s hint %+.0f,%+.0f px off the bull: %s%n", good ? "ok  " : "FAIL", off[0], off[1], hr);
+                if (!good) failures++;
+            }
+            // Decoy: a small copy of the board picture pasted into the bottom-right corner.
+            int[] dec = img.clone();
+            // (a complete small board, kept clear of the real one)
+            int bx = (int) bull[0], by = (int) bull[1], half = 70;
+            for (int y = -half; y < half; y++) for (int x = -half; x < half; x++) {
+                int sx = (int) (bx + 2.4 * x), sy = (int) (by + 2.4 * y), tx = W - half - 2 + x, ty = H - half - 2 + y;
+                if (sx < 0 || sy < 0 || sx >= W || sy >= H || tx < 0 || ty < 0 || tx >= W || ty >= H) continue;
+                dec[ty * W + tx] = img[sy * W + sx];
+            }
+            AutoCalibrator.Result withHint = AutoCalibrator.find(dec, W, H, up0, up1, bull[0] + 20, bull[1] - 20);
+            double err = 0;
+            if (withHint.ok()) for (int i = 0; i < 4; i++) {
+                double[] t2 = b2i.map(Board.CALIBRATION_POINTS[i][0], Board.CALIBRATION_POINTS[i][1]);
+                err = Math.max(err, Math.hypot(t2[0] - withHint.calPoints[i][0], t2[1] - withHint.calPoints[i][1]));
+            }
+            boolean good = withHint.ok() && err < 3;
+            System.out.printf(Locale.ROOT, "%s decoy beside the board, hint on the real one: %s (err %.2f px)%n", good ? "ok  " : "FAIL", withHint, err);
+            if (!good) failures++;
+        }
+
         // Must not invent a board.
         int[] wall = new int[W * H];
         for (int i = 0; i < wall.length; i++) wall[i] = pack(WALL[0], WALL[1], WALL[2]);

@@ -29,6 +29,11 @@ public final class BoardView extends View {
         void onCalibrationChanged(List<float[]> pts);
     }
 
+    public interface TapListener {
+        /** Tap on the camera picture while playing, in frame pixels. */
+        void onTap(float fx, float fy);
+    }
+
     public static final class Mark {
         final float x, y; final String label;
         public Mark(float x, float y, String label) { this.x = x; this.y = y; this.label = label; }
@@ -60,6 +65,9 @@ public final class BoardView extends View {
     private boolean calibrating;
     private int dragging = -1;
     private CalibrationListener calListener;
+    private TapListener tapListener;
+    private float ringX, ringY;      // focus ring after a tap (frame pixels)
+    private long ringUntil;
 
     private final Paint wire = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint handle = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -92,6 +100,8 @@ public final class BoardView extends View {
     }
 
     public void setCalibrationListener(CalibrationListener l) { calListener = l; }
+
+    public void setTapListener(TapListener l) { tapListener = l; }
 
     public void setFrame(Bitmap b) {
         frame = b;
@@ -158,6 +168,13 @@ public final class BoardView extends View {
             label(c, m.label, v[0] + 12 * dp, v[1] + 6 * dp);
         }
         if (zoom != null && !calibrating) drawZoom(c, zoom);
+        if (System.currentTimeMillis() < ringUntil) {
+            float[] v = view(ringX, ringY);
+            handle.setColor(Color.WHITE);
+            c.drawCircle(v[0], v[1], 34 * dp, handle);
+            c.drawCircle(v[0], v[1], 4 * dp, handle);
+            handle.setColor(Color.YELLOW);
+        }
     }
 
     /** The close-up, on the side of the screen away from the dart. */
@@ -270,7 +287,21 @@ public final class BoardView extends View {
             invalidate();
             return true;
         }
-        if (!calibrating || frame == null) return false;
+        if (!calibrating) {
+            // Playing: a tap on the picture = "focus here, the board is here".
+            if (frame == null || tapListener == null) return false;
+            if (e.getActionMasked() == MotionEvent.ACTION_UP) {
+                float[] f = toFramePoint(e.getX(), e.getY());
+                if (f[0] < 0 || f[1] < 0 || f[0] >= frame.getWidth() || f[1] >= frame.getHeight()) return true;
+                ringX = f[0]; ringY = f[1];
+                ringUntil = System.currentTimeMillis() + 1200;
+                invalidate();
+                postDelayed(this::invalidate, 1300);
+                tapListener.onTap(f[0], f[1]);
+            }
+            return true;
+        }
+        if (frame == null) return false;
         float[] f = toFramePoint(e.getX(), e.getY());
         switch (e.getActionMasked()) {
             case MotionEvent.ACTION_DOWN: {

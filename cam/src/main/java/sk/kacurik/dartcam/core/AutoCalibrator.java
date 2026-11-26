@@ -86,6 +86,15 @@ public final class AutoCalibrator {
      *                10 red segments is the 20 (works within ±18° and with the phone at any roll).
      */
     public static Result find(int[] argb, int w, int h, double upX, double upY) {
+        return find(argb, w, h, upX, upY, Double.NaN, Double.NaN);
+    }
+
+    /**
+     * @param hintX,hintY where the board centre probably is (a tap on the screen, or the bull of the
+     *                    tracked calibration), or NaN. The centre is looked for around it first, so other
+     *                    round or red/green things in the picture can't pull Auto away.
+     */
+    public static Result find(int[] argb, int w, int h, double upX, double upY, double hintX, double hintY) {
         double un = Math.hypot(upX, upY);
         if (un < 1e-9) { upX = 0; upY = -1; } else { upX /= un; upY /= un; }
         byte[] cls = new byte[w * h];
@@ -93,7 +102,9 @@ public final class AutoCalibrator {
         for (int i = 0; i < cls.length; i++) { cls[i] = classify(argb[i]); if (cls[i] != OTHER) n++; }
         if (n < 0.01 * w * h) return Result.fail("board not found (no red/green rings visible – more light?)");
 
-        double[] c = findCentre(cls, w, h);
+        double[] c = null;
+        if (!Double.isNaN(hintX) && !Double.isNaN(hintY)) c = centreNear(cls, w, h, hintX, hintY);
+        if (c == null) c = findCentre(cls, w, h);
         double[] ell = null;
         double[] centre = c;
         // Ray casting from a point inside the bull area; repeat once from the fitted ellipse centre.
@@ -333,6 +344,24 @@ public final class AutoCalibrator {
      * The board centre: of a coarse grid of candidates (plus the colour centroid), the one from which
      * the most rays see "treble ring, then double ring". Coloured things beside the board don't fool it.
      */
+    /**
+     * Best board centre within ~20 % of the picture around a hint, or null if nothing there looks like
+     * a board (then the whole picture is searched).
+     */
+    private static double[] centreNear(byte[] cls, int w, int h, double hx, double hy) {
+        double radius = 0.2 * Math.max(w, h);
+        int step = Math.max(4, Math.min(w, h) / 48);
+        double[] best = null;
+        int bestHits = 0;
+        for (double y = hy - radius; y <= hy + radius; y += step)
+            for (double x = hx - radius; x <= hx + radius; x += step) {
+                if (x < 0 || y < 0 || x >= w || y >= h || Math.hypot(x - hx, y - hy) > radius) continue;
+                int hits = castRays(cls, w, h, x, y, 48).size();
+                if (hits > bestHits) { bestHits = hits; best = new double[]{x, y}; }
+            }
+        return bestHits >= 16 ? best : null; // a third of the rays must see "treble, then double"
+    }
+
     private static double[] findCentre(byte[] cls, int w, int h) {
         double[] best = roughCentre(cls, w, h);
         int bestHits = castRays(cls, w, h, best[0], best[1], 48).size();

@@ -37,6 +37,8 @@ Setup:
    nothing moves, it looks for the board again. Small differences are smoothed in without disturbing the
    detection; if the phone was moved, the new position is taken after two matching looks ("Board moved –
    following"). The chip at the top shows **Board locked** / **Following…** / **Searching board: <reason>**.
+   **Tap the camera picture** to focus there and to tell the tracker "the board is here" (handy if something
+   else round or red/green is in view); once the board is locked, focus and exposure stay on the board.
    Switch it off with **Track the board all the time** on the calibration screen (e.g. for a board Auto
    can't read).
 5. Play. Each dart is shown on the phone and entered in DartCounter; pulling the darts out submits the visit.
