@@ -157,6 +157,29 @@ public class AutoCalTest {
             }
         }
 
+        // Auto-zoom: from the found calibration, the zoom factor should make the board (225 mm) fill ~92%.
+        for (double[] cam : new double[][]{{0, 330, -380, 360, 0}, {-180, 260, -420, 300, 10}, {320, 40, -380, 640, 0}}) {
+            SimTest.camera(cam[0], cam[1], cam[2], cam[3], cam[4]);
+            Homography b2i = SimTest.boardToImg();
+            int[] img = render(b2i.inverse(), 0.3, new double[]{0.9, 0.9, 0.85});
+            AutoCalibrator.Result res = AutoCalibrator.find(img, W, H, -SimTest.R[0][1], -SimTest.R[1][1]);
+            if (!res.ok()) { System.out.println("FAIL zoom case: " + res); failures++; continue; }
+            double fz = AutoCalibrator.zoomFactor(res.boardToImg, W, H, 225, 0.92);
+            // Digital zoom = focal length times the factor, same optical centre.
+            SimTest.camera(cam[0], cam[1], cam[2], cam[3] * fz, cam[4]);
+            Homography z = SimTest.boardToImg();
+            double fillNow = 0;
+            for (int i = 0; i < 360; i++) {
+                double a = Math.toRadians(i);
+                double[] p = z.map(225 * Math.sin(a), -225 * Math.cos(a));
+                fillNow = Math.max(fillNow, Math.max(Math.abs(p[0] - W / 2.0) / (W / 2.0), Math.abs(p[1] - H / 2.0) / (H / 2.0)));
+            }
+            boolean good = Math.abs(fillNow - 0.92) < 0.02;
+            System.out.printf(Locale.ROOT, "%s zoom: factor %.2f -> board fills %.1f%% of the picture%n", good ? "ok  " : "FAIL", fz, fillNow * 100);
+            if (!good) failures++;
+        }
+        SimTest.ppx = W / 2.0; SimTest.ppy = H / 2.0;
+
         // Must not invent a board.
         int[] wall = new int[W * H];
         for (int i = 0; i < wall.length; i++) wall[i] = pack(WALL[0], WALL[1], WALL[2]);

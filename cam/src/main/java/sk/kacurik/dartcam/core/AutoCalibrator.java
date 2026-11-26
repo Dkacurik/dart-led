@@ -258,6 +258,24 @@ public final class AutoCalibrator {
         return runs;
     }
 
+    /**
+     * How much the camera zoom may change so that the board out to {@code radiusMm} (number ring and
+     * flights) fills {@code fill} of the picture. Digital zoom enlarges about the picture centre, so
+     * every point moves away from the centre by the factor; the factor is limited by the point that
+     * would leave the picture first. &gt; 1 = zoom in, &lt; 1 = zoom out.
+     */
+    public static double zoomFactor(Homography boardToImg, int w, int h, double radiusMm, double fill) {
+        double cx = w / 2.0, cy = h / 2.0, f = Double.MAX_VALUE;
+        for (int i = 0; i < 72; i++) {
+            double a = Math.toRadians(i * 5);
+            double[] p = boardToImg.map(radiusMm * Math.sin(a), -radiusMm * Math.cos(a));
+            double dx = Math.abs(p[0] - cx), dy = Math.abs(p[1] - cy);
+            if (dx > 1e-6) f = Math.min(f, cx * fill / dx);
+            if (dy > 1e-6) f = Math.min(f, cy * fill / dy);
+        }
+        return f == Double.MAX_VALUE ? 1 : f;
+    }
+
     /** Red for segments with an even index from the top (20, 18, 13, ...), green for odd. */
     static byte expectedColour(double boardAngleDeg) {
         double a = ((boardAngleDeg % 360) + 360) % 360;

@@ -33,6 +33,7 @@ import androidx.camera.core.Camera;
 import androidx.camera.core.CameraSelector;
 import androidx.camera.core.ImageAnalysis;
 import androidx.camera.core.ImageProxy;
+import androidx.camera.core.ZoomState;
 import androidx.camera.core.resolutionselector.AspectRatioStrategy;
 import androidx.camera.core.resolutionselector.ResolutionSelector;
 import androidx.camera.core.resolutionselector.ResolutionStrategy;
@@ -183,17 +184,19 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
         calBar = new LinearLayout(this);
         calBar.setOrientation(LinearLayout.VERTICAL);
         bottom.addView(calBar);
-        TextView zl = label(calBar, "Zoom (set this first, then Auto – or tap the 4 points)", 13);
+        TextView zl = label(calBar, "Zoom (Auto sets it by itself – or set it, then tap the 4 points)", 13);
         zl.setPadding(dp(4), 0, 0, 0);
         zoomBar = new SeekBar(this);
         zoomBar.setMax(100);
         zoomBar.setProgress(prefs.getInt("zoom", 0));
         zoomBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override public void onProgressChanged(SeekBar s, int p, boolean user) {
-                if (camera != null) camera.getCameraControl().setLinearZoom(p / 100f);
+                if (user && camera != null) camera.getCameraControl().setLinearZoom(p / 100f);
             }
             @Override public void onStartTrackingTouch(SeekBar s) { }
-            @Override public void onStopTrackingTouch(SeekBar s) { prefs.edit().putInt("zoom", s.getProgress()).apply(); }
+            @Override public void onStopTrackingTouch(SeekBar s) {
+                prefs.edit().putInt("zoom", s.getProgress()).remove("zoomRatio").apply();
+            }
         });
         calBar.addView(zoomBar);
         LinearLayout cr = row(calBar);
@@ -255,8 +258,28 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
         if (autoRunning) return;
         autoRunning = true;
         autoMsg = null;
+        autoRound = 0;
+        autoZoomedOut = false;
         autoCalRequested = true;
         updateHint();
+    }
+
+    // Auto-zoom: rounds of "find the board, set the zoom so it fills the picture, look again".
+    private int autoRound;
+    private boolean autoZoomedOut;
+    private static final double BOARD_VIEW_MM = 225; // number ring + flights must stay in the picture
+    private static final double BOARD_FILL = 0.92;
+
+    private ZoomState zoomState() {
+        return camera == null ? null : camera.getCameraInfo().getZoomState().getValue();
+    }
+
+    /** Set the zoom, then look for the board again once the picture has settled. */
+    private void zoomAndRetry(float ratio, String hint) {
+        camera.getCameraControl().setZoomRatio(ratio);
+        autoMsg = null;
+        hintText.setText(hint);
+        hintText.postDelayed(() -> { if (autoRunning && boardView.calibrating()) autoCalRequested = true; }, 900);
     }
 
     /** Runs on the analysis thread with the upright frame. */
@@ -271,13 +294,36 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
     }
 
     private void onAutoCalibration(AutoCalibrator.Result r) {
+        if (!boardView.calibrating()) { autoRunning = false; return; }
+        ZoomState zs = zoomState();
+        if (zs != null && r.ok() && autoRound < 3) {
+            double f = AutoCalibrator.zoomFactor(r.boardToImg, frameW, frameH, BOARD_VIEW_MM, BOARD_FILL);
+            float cur = zs.getZoomRatio();
+            float target = (float) Math.max(zs.getMinZoomRatio(), Math.min(zs.getMaxZoomRatio(), cur * f));
+            if (Math.abs(target / cur - 1) > 0.06) {
+                autoRound++;
+                zoomAndRetry(target, String.format(Locale.ROOT, "Zooming to the board (%.1f× → %.1f×)…", cur, target));
+                return;
+            }
+        }
+        if (zs != null && !r.ok() && !autoZoomedOut && zs.getZoomRatio() > zs.getMinZoomRatio() * 1.05f) {
+            // Maybe zoomed in too far (board cut off): look again with the widest view.
+            autoZoomedOut = true;
+            zoomAndRetry(zs.getMinZoomRatio(), "Board not found – zooming out and looking again…");
+            return;
+        }
         autoRunning = false;
-        if (!boardView.calibrating()) return;
+        if (zs != null) {
+            // Keep exactly this zoom for the next start; move the slider without touching the camera.
+            prefs.edit().putFloat("zoomRatio", zs.getZoomRatio()).putInt("zoom", Math.round(zs.getLinearZoom() * 100)).apply();
+            zoomBar.setProgress(Math.round(zs.getLinearZoom() * 100));
+        }
         if (r.ok()) {
             List<float[]> pts = new ArrayList<>();
             for (double[] p : r.calPoints) pts.add(new float[]{(float) p[0], (float) p[1]});
             boardView.setCalibrationPoints(pts);
-            autoMsg = "Board found. Check that 20 is at the top and the green lines sit on the wires "
+            autoMsg = (zs == null ? "Board found. " : String.format(Locale.ROOT, "Board found, zoom %.1f×. ", zs.getZoomRatio()))
+                    + "Check that 20 is at the top and the green lines sit on the wires "
                     + "(drag the yellow circles if not), then tap Done.";
             onCalibrationPoints(pts);
             buzz(25);
@@ -333,6 +379,7 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
         boardView.setCalibrating(false);
         paused = false;
         autoMsg = null;
+        autoRunning = false; // a zoom round still waiting ends here
         visit.clear();
         boardView.clearMarks();
         showMode();
@@ -376,7 +423,9 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
                 analysis.setAnalyzer(analysisThread, this::analyze);
                 provider.unbindAll();
                 camera = provider.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, analysis);
-                camera.getCameraControl().setLinearZoom(prefs.getInt("zoom", 0) / 100f);
+                float zr = prefs.getFloat("zoomRatio", -1);
+                if (zr > 0) camera.getCameraControl().setZoomRatio(zr); // exactly the zoom Auto calibrated with
+                else camera.getCameraControl().setLinearZoom(prefs.getInt("zoom", 0) / 100f);
             } catch (Exception e) {
                 hintText.setText("Camera error: " + e.getMessage());
             }

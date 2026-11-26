@@ -26,8 +26,9 @@ Setup:
 2. DartCounter: use **single-dart input** (SINGLE / DOUBLE / TRIPLE + numbers, then SUBMIT).
 3. Phone: install `DartCam.apk`, allow the camera, put phone and tablet on the same Wi-Fi.
    DartCam finds the tablet by itself (the address can be typed in as a fallback: tap the status line).
-4. Fix the phone so it can't move, pull the darts out of the board, tap **Calibrate** and set the zoom so the
-   board fills the picture. Tap **Auto**: DartCam finds the board by itself (the first time it tries right away).
+4. Fix the phone so it can't move, pull the darts out of the board and tap **Calibrate**. Tap **Auto**: DartCam finds the board by itself (the first time it tries right away) and sets the zoom
+   so the board fills the picture (zooming uses more of the camera sensor, so darts are seen sharper;
+   if the zoom is too far in, it zooms out and looks again). The zoom is kept for the next start.
    Check that **20 is at the top** and the green wireframe sits on the wires, then tap **Done**.
    If Auto can't find the board (dark room, darts in the board, a board that isn't red/green), tap the
    **outer edge of the double ring** in the middle of 20 (top), 6 (right), 3 (bottom), 11 (left) by hand.
