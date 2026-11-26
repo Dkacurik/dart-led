@@ -44,6 +44,22 @@ public final class Board {
         return Hit.of(number, mult);
     }
 
+    private static final double[] RINGS = {R_INNER_BULL, R_OUTER_BULL, R_TREBLE_IN, R_TREBLE_OUT, R_DOUBLE_IN, R_DOUBLE_OUT};
+
+    /** Millimetres from (x, y) to the nearest wire: a ring edge or a segment wire. */
+    public static double wireDistance(double x, double y) {
+        double r = Math.hypot(x, y);
+        double best = Double.MAX_VALUE;
+        for (double R : RINGS) best = Math.min(best, Math.abs(r - R));
+        if (r > R_OUTER_BULL && r < R_DOUBLE_OUT + 1) {
+            double angle = Math.toDegrees(Math.atan2(x, -y));
+            double toWire = ((angle - 9) % 18 + 18) % 18; // degrees past the last wire
+            double d = Math.min(toWire, 18 - toWire);
+            best = Math.min(best, r * Math.sin(Math.toRadians(d)));
+        }
+        return best;
+    }
+
     /** Centre of the given segment/ring in board coordinates, handy for tests and overlays. */
     public static double[] pointFor(int number, double radius) {
         int idx = -1;

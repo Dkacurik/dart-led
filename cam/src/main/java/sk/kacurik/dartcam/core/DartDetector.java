@@ -67,6 +67,12 @@ public final class DartDetector {
     public int dartsInVisit() { return dartsInVisit; }
     public boolean calibrated() { return imgToBoard != null; }
 
+    /** Image pixels -> board millimetres, or null before calibration. */
+    public Homography imgToBoard() { return imgToBoard; }
+
+    /** True while nothing moves in front of the board (the picture is a good "before" for the next dart). */
+    public boolean idle() { return prev != null && !moving && !blocked; }
+
     /**
      * Where the camera stands, projected onto the board plane (board mm). Darts stick out of the
      * board towards the camera, so on the flattened board every dart's flight lies further from
