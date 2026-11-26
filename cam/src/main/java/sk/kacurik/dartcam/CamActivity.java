@@ -22,6 +22,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
@@ -89,6 +90,16 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
 
     /** Note about the last dart's zoom re-check (corrected / close to a wire), shown in the hint. */
     private String zoomNote;
+
+    // Keeping the calibration up to date while playing (analysis thread, except keepCalibrated).
+    private volatile boolean keepCalibrated = true;
+    private long lastRecheckMs;
+    private double[][] recheckCandidate;  // last found points (frame px), adopted when the next run agrees
+    private static final long RECHECK_MS = 3000, RECHECK_CONFIRM_MS = 1000;
+
+    /** "Calibration updated" note and until when to show it (UI thread). */
+    private String calNote;
+    private long calNoteUntil;
 
     /** Message from the last Auto run, shown while calibrating; null = normal hints. */
     private String autoMsg;
@@ -199,6 +210,16 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
             }
         });
         calBar.addView(zoomBar);
+        CheckBox keep = new CheckBox(this);
+        keep.setText("Keep calibrated automatically (follows the phone if it moves)");
+        keep.setTextColor(Color.WHITE);
+        keepCalibrated = prefs.getBoolean("autoKeep", true);
+        keep.setChecked(keepCalibrated);
+        keep.setOnCheckedChangeListener((b, on) -> {
+            keepCalibrated = on;
+            prefs.edit().putBoolean("autoKeep", on).apply();
+        });
+        calBar.addView(keep);
         LinearLayout cr = row(calBar);
         button(cr, "Auto", v -> requestAutoCalibration());
         button(cr, "Reset points", v -> { autoMsg = null; boardView.clearCalibration(); });
@@ -232,7 +253,9 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
             hintText.setText("Paused");
         } else {
             String v = visit.isEmpty() ? "Ready – throw!" : "Visit: " + String.join("  ", visit);
-            hintText.setText(zoomNote == null || visit.isEmpty() ? v : v + "\n" + zoomNote);
+            if (zoomNote != null && !visit.isEmpty()) v += "\n" + zoomNote;
+            if (calNote != null && System.currentTimeMillis() < calNoteUntil) v += "\n" + calNote;
+            hintText.setText(v);
         }
     }
 
@@ -365,7 +388,18 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
             return;
         }
         // BoardView owns the dragged positions; read them back through the listener copy.
-        List<float[]> pts = lastCalPoints;
+        saveCalibration(lastCalPoints);
+        boardView.setCalibrating(false);
+        paused = false;
+        autoMsg = null;
+        autoRunning = false; // a zoom round still waiting ends here
+        visit.clear();
+        boardView.clearMarks();
+        showMode();
+    }
+
+    /** Store 4 points (frame pixels) and hand them to the detector. */
+    private void saveCalibration(List<float[]> pts) {
         float[] norm = new float[8];
         for (int i = 0; i < 4; i++) {
             norm[i * 2] = pts.get(i)[0] / frameW;
@@ -376,13 +410,49 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
         prefs.edit().putString("cal", sb.toString()).apply();
         pendingCal = norm;
         calChanged = true;
-        boardView.setCalibrating(false);
-        paused = false;
-        autoMsg = null;
-        autoRunning = false; // a zoom round still waiting ends here
-        visit.clear();
-        boardView.clearMarks();
-        showMode();
+    }
+
+    /**
+     * Analysis thread, while playing: every few seconds, when nothing moves, look for the board again.
+     * A new position is taken only when two runs in a row agree, and (to leave the visit alone)
+     * small shifts only while the board is empty.
+     */
+    private void recheckCalibration(Bitmap frame) {
+        long now = System.currentTimeMillis();
+        if (now - lastRecheckMs < (recheckCandidate != null ? RECHECK_CONFIRM_MS : RECHECK_MS)) return;
+        lastRecheckMs = now;
+        float[] c = pendingCal;
+        if (c == null) return;
+        int w = frame.getWidth(), h = frame.getHeight();
+        int[] px = new int[w * h];
+        frame.getPixels(px, 0, w, 0, 0, w, h);
+        AutoCalibrator.Result r = AutoCalibrator.find(px, w, h, gravX, -gravY);
+        if (!r.ok()) { recheckCandidate = null; return; }
+        double shift = 0, agree = recheckCandidate == null ? Double.MAX_VALUE : 0;
+        for (int i = 0; i < 4; i++) {
+            shift = Math.max(shift, Math.hypot(r.calPoints[i][0] - c[i * 2] * w, r.calPoints[i][1] - c[i * 2 + 1] * h));
+            if (recheckCandidate != null)
+                agree = Math.max(agree, Math.hypot(r.calPoints[i][0] - recheckCandidate[i][0], r.calPoints[i][1] - recheckCandidate[i][1]));
+        }
+        boolean worth = shift > 3 || shift > 1.0 && detector.dartsInVisit() == 0;
+        if (!worth) { recheckCandidate = null; return; }
+        if (agree > 0.7) { recheckCandidate = r.calPoints; return; } // confirm with the next run
+        recheckCandidate = null;
+        List<float[]> pts = new ArrayList<>();
+        for (double[] p : r.calPoints) pts.add(new float[]{(float) p[0], (float) p[1]});
+        double moved = shift;
+        runOnUiThread(() -> {
+            if (boardView.calibrating() || !keepCalibrated) return;
+            saveCalibration(pts);
+            if (moved <= 3) return; // small drift: fixed silently
+            boardView.clearMarks(); // positions of darts already in the board are no longer valid
+            boardView.setZoom(null);
+            calNote = String.format(Locale.ROOT, "Calibration updated (phone moved %.0f px).", moved);
+            calNoteUntil = System.currentTimeMillis() + 5000;
+            hintText.postDelayed(this::updateHint, 5100);
+            buzz(20);
+            updateHint();
+        });
     }
 
     /** Latest calibration points (frame pixels) as placed/dragged in the BoardView. */
@@ -488,6 +558,8 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
                 px[i] = (((c >> 16) & 0xff) * 77 + ((c >> 8) & 0xff) * 150 + (c & 0xff) * 29) >> 8;
             }
             ev = detector.feed(px);
+            if (ev == null && keepCalibrated && detector.idle()) recheckCalibration(upright);
+            else if (ev != null) recheckCandidate = null;
         }
         ZoomShot zoom = null;
         if (ev != null && ev.type == DartDetector.Type.DART && beforeFull != null) {

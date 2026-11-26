@@ -180,6 +180,24 @@ public class AutoCalTest {
         }
         SimTest.ppx = W / 2.0; SimTest.ppy = H / 2.0;
 
+        // Repeatability: the same scene in two frames with different noise must give (almost) the same
+        // points, or the automatic re-calibration during play would keep "updating" for nothing.
+        double jitter = 0;
+        for (double[] cam : new double[][]{{-180, 260, -420, 520, 0}, {320, 40, -380, 520, 10}, {0, 330, -380, 480, -5}}) {
+            SimTest.camera(cam[0], cam[1], cam[2], cam[3], cam[4]);
+            Homography i2b = SimTest.boardToImg().inverse();
+            double[][] first = null;
+            for (int k = 0; k < 4; k++) {
+                AutoCalibrator.Result res = AutoCalibrator.find(render(i2b, 0.4, new double[]{0.8, 0.8, 0.75}), W, H, -SimTest.R[0][1], -SimTest.R[1][1]);
+                if (!res.ok()) { failures++; System.out.println("FAIL repeatability: " + res); break; }
+                if (first == null) first = res.calPoints;
+                else for (int i = 0; i < 4; i++) jitter = Math.max(jitter, Math.hypot(res.calPoints[i][0] - first[i][0], res.calPoints[i][1] - first[i][1]));
+            }
+        }
+        System.out.printf(Locale.ROOT, "%s repeatability: same scene, new noise -> points move at most %.2f px (re-calibration threshold 1.0 px)%n",
+                jitter < 0.5 ? "ok  " : "FAIL", jitter);
+        if (jitter >= 0.5) failures++;
+
         // Must not invent a board.
         int[] wall = new int[W * H];
         for (int i = 0; i < wall.length; i++) wall[i] = pack(WALL[0], WALL[1], WALL[2]);

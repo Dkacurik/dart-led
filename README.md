@@ -33,6 +33,11 @@ Setup:
    If Auto can't find the board (dark room, darts in the board, a board that isn't red/green), tap the
    **outer edge of the double ring** in the middle of 20 (top), 6 (right), 3 (bottom), 11 (left) by hand.
    Either way the yellow circles can be dragged until the wireframe fits.
+   While playing, DartCam keeps the calibration up to date by itself: every few seconds, when nothing moves,
+   it looks for the board again; if the phone was nudged it takes the new position (two looks must agree)
+   and says "Calibration updated". Small drift is fixed silently, and only while the board is empty.
+   Switch it off with **Keep calibrated automatically** on the calibration screen (e.g. for a board Auto
+   can't read).
 5. Play. Each dart is shown on the phone and entered in DartCounter; pulling the darts out submits the visit.
    After each dart a **close-up** of the dart appears (full camera resolution, with the wires drawn in) and
    the number is **re-checked in that zoom**; the hint says when the zoom corrected the number, and the
