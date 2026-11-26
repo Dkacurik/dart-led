@@ -8,12 +8,47 @@ Shows the scores from the **DartCounter** app on an **iPixel Color** LED display
 ```
 
 ## How it works
-- **Reading:** an Android accessibility service reads the names, remaining scores, legs and checkout hint that DartCounter shows on its match screen. It only reads DartCounter's windows and never taps or types anything.
+- **Reading:** an Android accessibility service reads the names, remaining scores, legs and checkout hint that DartCounter shows on its match screen. It only reads DartCounter's windows; it presses DartCounter's buttons only to enter darts sent by the DartCam phone (can be switched off).
 - **Display:** the app draws a small picture sized for the panel (auto-detected, e.g. 64×16) and sends it over Bluetooth using the iPixel protocol reverse-engineered by the open-source [pypixelcolor](https://github.com/lucagoc/pypixelcolor) project.
+
+## Camera scoring with DartCam (phone at the board)
+**DartCam** (`cam/`) is a second app for a phone placed near the board (e.g. Pixel 10 Pro on a small tripod
+below or beside the board, 30–60 cm away). It recognises every dart with the camera and sends it over Wi-Fi to
+Dart LED on the tablet, which enters it into DartCounter by pressing DartCounter's keypad buttons.
+
+```
+Pixel (DartCam: camera)  --Wi-Fi-->  tablet (Dart LED)  --taps-->  DartCounter  --reads-->  LED display
+```
+
+Setup:
+1. Tablet: install the new Dart LED, then in Android's accessibility settings switch Dart LED **off and on
+   again** (it now also needs permission to press buttons). In Dart LED, section 5 shows the tablet's address.
+2. DartCounter: use **single-dart input** (SINGLE / DOUBLE / TRIPLE + numbers, then SUBMIT).
+3. Phone: install `DartCam.apk`, allow the camera, put phone and tablet on the same Wi-Fi.
+   DartCam finds the tablet by itself (the address can be typed in as a fallback: tap the status line).
+4. Fix the phone so it can't move, tap **Calibrate**, set the zoom so the board fills the picture,
+   then tap the **outer edge of the double ring** in the middle of 20 (top), 6 (right), 3 (bottom), 11 (left).
+   Drag the yellow circles until the green wireframe sits on the wires, tap **Done**.
+5. Play. Each dart is shown on the phone and entered in DartCounter; pulling the darts out submits the visit.
+   Buttons: **Undo** (last dart), **Miss** (dart missed the board / bounced out), **Board clear ▶** (submit
+   when the takeout was not noticed). A wrong dart can also be fixed directly in DartCounter.
+
+Moving the phone or changing the zoom needs a new calibration.
+
+How the detection works (`cam/.../core/DartDetector.java`, plain Java): it waits until the picture is still,
+compares it with the previous still picture, and takes the changed area as the new dart. The 4 calibration
+points give a homography to board millimetres and also the camera's position; since darts stick out towards
+the camera, the tip is the part of the dart nearest to the camera's foot point on the board. A takeout is
+noticed when the board looks empty again. `tools/dartcam-sim/SimTest.java` tests this on simulated camera
+views (5 camera positions, noise, takeouts, an exposure jump): about 90% exact, tip error ~2 mm, and the
+misses are darts placed on purpose within ~2 mm of a wire.
+
+If darts are entered wrongly, use **Copy DartCounter buttons** in Dart LED during a match and adjust the
+button names in `DartTyper.java`.
 
 ## Install
 Every push to `main` builds the app on GitHub and publishes it at
-**Releases › latest › DartLED.apk**. Open that page on the tablet, download, and install (allow installs from your browser when Android asks).
+**Releases › latest** (`DartLED.apk` for the tablet, `DartCam.apk` for the phone at the board). Open that page on the device, download, and install (allow installs from your browser when Android asks).
 
 ## Setup on the tablet
 1. Open **Dart LED** › *Open accessibility settings* › switch on **Dart LED**.
@@ -30,3 +65,5 @@ Open Dart LED during a match and use **Copy what Dart LED sees**; that text show
 - `DartReaderService` – reads DartCounter's screen.
 - `LedLink` – Bluetooth connection and sending.
 - `MainActivity` – the setup screen.
+- `CamServer` / `DartTyper` – receive darts from DartCam over Wi-Fi and enter them into DartCounter.
+- `cam/` – the DartCam phone app (camera, calibration, dart detection).

@@ -28,6 +28,8 @@ public final class DartApp extends Application {
     private SharedPreferences prefs;
     private LedLink link;
     private Narrator narrator;
+    private CamServer camServer;
+    private final DartTyper typer = new DartTyper();
 
     private volatile Scoreboard board = new Scoreboard();
     private volatile String boardKey = "";
@@ -72,7 +74,16 @@ public final class DartApp extends Application {
         quips.chance = quipsChance();
         link.setAddress(prefs.getString("address", null));
         anim.scheduleAtFixedRate(this::tick, 1, 1, TimeUnit.SECONDS);
+        camServer = new CamServer(this);
+        camServer.start();
     }
+
+    public CamServer camServer() { return camServer; }
+    public DartTyper typer() { return typer; }
+
+    /** Enter darts from the DartCam phone into DartCounter (presses DartCounter's keypad). */
+    public boolean typingOn() { return prefs.getBoolean("typing", true); }
+    public void setTypingOn(boolean on) { prefs.edit().putBoolean("typing", on).apply(); camServer.pushState(board); }
 
     public LedLink link() { return link; }
     public Scoreboard board() { return board; }
@@ -134,6 +145,7 @@ public final class DartApp extends Application {
         lastMatchAt = System.currentTimeMillis();
         if (idle) leaveIdle();
         show(sb);
+        if (camServer != null) camServer.pushState(sb);
     }
 
     /** The reader saw another app come to the front (home screen, browser...). */

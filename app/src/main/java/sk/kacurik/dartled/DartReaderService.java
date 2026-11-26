@@ -16,11 +16,14 @@ import sk.kacurik.dartled.core.ScreenParser;
 
 /**
  * Reads the texts shown by DartCounter (names, scores, legs) using Android's accessibility API.
- * It only looks at DartCounter's windows and never types or taps anything.
+ * It only looks at DartCounter's windows. It presses DartCounter's buttons only for darts
+ * sent by the DartCam phone (see DartTyper), and only when that is switched on.
  */
 public final class DartReaderService extends AccessibilityService {
 
     public static volatile boolean running;
+    /** The running service, used by DartTyper to press DartCounter's buttons. */
+    public static volatile DartReaderService instance;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable readNow = this::readScreen;
@@ -29,6 +32,7 @@ public final class DartReaderService extends AccessibilityService {
     @Override
     protected void onServiceConnected() {
         running = true;
+        instance = this;
         DartApp.get().link().connectNow();
     }
 
@@ -53,14 +57,14 @@ public final class DartReaderService extends AccessibilityService {
 
     private void readScreen() {
         scheduled = false;
-        AccessibilityNodeInfo root = findDartCounterRoot();
+        AccessibilityNodeInfo root = dartCounterRoot();
         if (root == null) return;
         List<String> texts = new ArrayList<>();
         collect(root, texts, 0);
         DartApp.get().onScreenTexts(String.valueOf(root.getPackageName()), texts);
     }
 
-    private AccessibilityNodeInfo findDartCounterRoot() {
+    AccessibilityNodeInfo dartCounterRoot() {
         AccessibilityNodeInfo root = getRootInActiveWindow();
         if (root != null && isDartCounter(root.getPackageName())) return root;
         try {
@@ -105,6 +109,7 @@ public final class DartReaderService extends AccessibilityService {
     @Override
     public void onDestroy() {
         running = false;
+        instance = null;
         super.onDestroy();
     }
 }

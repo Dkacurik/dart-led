@@ -44,7 +44,7 @@ import sk.kacurik.dartled.core.ScreenParser;
 public final class MainActivity extends Activity {
 
     private final Handler handler = new Handler(Looper.getMainLooper());
-    private TextView readerStatus, displayStatus, boardText, debugText;
+    private TextView readerStatus, displayStatus, boardText, debugText, camStatus, buttonsText;
     private Button sizeButton;
     private ImageView preview;
     private Frame shownFrame;
@@ -261,6 +261,31 @@ public final class MainActivity extends Activity {
             app.testVoice();
         });
 
+        // DartCam – camera on the phone at the board
+        header(col, "5. Camera scoring (DartCam phone)");
+        text(col, "The DartCam app on a phone at the board recognises each dart and sends it here over Wi-Fi. "
+                + "Dart LED then enters it into DartCounter for you (DartCounter must use single-dart input: "
+                + "SINGLE / DOUBLE / TRIPLE and the numbers). Phone and tablet must be on the same Wi-Fi.", 13);
+        camStatus = text(col, "", 15);
+        Button typeBtn = button(col, "", null);
+        typeBtn.setText(app.typingOn() ? "Enter darts into DartCounter: ON" : "Enter darts into DartCounter: OFF");
+        typeBtn.setOnClickListener(v -> {
+            app.setTypingOn(!app.typingOn());
+            typeBtn.setText(app.typingOn() ? "Enter darts into DartCounter: ON" : "Enter darts into DartCounter: OFF");
+        });
+        text(col, "If a dart is entered wrongly or not at all: open a match in DartCounter, come back, tap the "
+                + "button below and send the copied text, so the button names can be adjusted.", 13);
+        button(col, "Copy DartCounter buttons", v -> {
+            String s = DartTyper.describeButtons();
+            buttonsText.setText(s);
+            ClipboardManager cm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+            cm.setPrimaryClip(ClipData.newPlainText("DartCounter buttons", s));
+            Toast.makeText(this, "Copied", Toast.LENGTH_SHORT).show();
+        });
+        buttonsText = text(col, "", 11);
+        buttonsText.setTypeface(Typeface.MONOSPACE);
+        buttonsText.setTextIsSelectable(true);
+
         // Troubleshooting
         header(col, "If scores don't appear");
         text(col, "Start a match in DartCounter, then come back here. Below is what Dart LED "
@@ -309,6 +334,14 @@ public final class MainActivity extends Activity {
             preview.setImageDrawable(d);
         }
         boardText.setText(app.board().isEmpty() ? "Waiting for a DartCounter match…" : app.board().toString());
+
+        CamServer cs = app.camServer();
+        if (cs != null) {
+            long camAgo = cs.lastCommandAt() == 0 ? -1 : (System.currentTimeMillis() - cs.lastCommandAt()) / 1000;
+            camStatus.setText((cs.clientCount() > 0 ? "✅ DartCam phone connected" : "⏳ Waiting for the DartCam phone")
+                    + "\nThis tablet: " + CamServer.addresses() + "  (port " + CamServer.PORT + ")"
+                    + (camAgo < 0 ? "" : "\nLast from phone: " + cs.lastCommand() + "  (" + camAgo + " s ago)"));
+        }
 
         StringBuilder dbg = new StringBuilder();
         long ago = app.lastSeenAt() == 0 ? -1 : (System.currentTimeMillis() - app.lastSeenAt()) / 1000;

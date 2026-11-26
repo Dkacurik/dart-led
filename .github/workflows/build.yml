@@ -21,14 +21,15 @@ jobs:
       - name: Accept Android SDK licenses
         run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
       - name: Build
-        run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
+        run: ./gradlew :app:assembleDebug :cam:assembleDebug --no-daemon --stacktrace
       - name: Publish download
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           cp app/build/outputs/apk/debug/app-debug.apk DartLED.apk
+          cp cam/build/outputs/apk/debug/cam-debug.apk DartCam.apk
           gh release delete latest --yes --cleanup-tag || true
-          gh release create latest DartLED.apk \
+          gh release create latest DartLED.apk DartCam.apk \
             --target "${{ github.sha }}" \
             --title "Dart LED – build ${{ github.run_number }}" \
-            --notes "Open this page on your tablet and tap DartLED.apk to download and install."
+            --notes "Tablet: tap DartLED.apk. Phone at the board: tap DartCam.apk."
