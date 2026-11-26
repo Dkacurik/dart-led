@@ -8,6 +8,10 @@ import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.Matrix;
+import android.hardware.Sensor;
+import android.hardware.SensorEvent;
+import android.hardware.SensorEventListener;
+import android.hardware.SensorManager;
 import android.os.Bundle;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
@@ -42,6 +46,7 @@ import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+import sk.kacurik.dartcam.core.AutoCalibrator;
 import sk.kacurik.dartcam.core.Board;
 import sk.kacurik.dartcam.core.DartDetector;
 import sk.kacurik.dartcam.core.Homography;
@@ -74,6 +79,22 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
     private volatile boolean calChanged;
     private volatile boolean paused;
     private volatile Runnable detectorTask;   // small actions on the detector (undo, miss, board clear)
+    private volatile boolean autoCalRequested; // run AutoCalibrator on the next camera frame
+    private volatile float gravX, gravY = 9.81f; // gravity in device axes (portrait: x right, y up)
+
+    /** Message from the last Auto run, shown while calibrating; null = normal hints. */
+    private String autoMsg;
+    private boolean autoRunning;
+
+    private SensorManager sensors;
+    private final SensorEventListener gravityListener = new SensorEventListener() {
+        @Override public void onSensorChanged(SensorEvent e) {
+            // Light smoothing, enough for a phone standing still on a tripod.
+            gravX += 0.2f * (e.values[0] - gravX);
+            gravY += 0.2f * (e.values[1] - gravY);
+        }
+        @Override public void onAccuracyChanged(Sensor s, int a) { }
+    };
 
     private final List<String> visit = new ArrayList<>();
 
@@ -94,11 +115,18 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
     protected void onStart() {
         super.onStart();
         link.start();
+        sensors = (SensorManager) getSystemService(SENSOR_SERVICE);
+        if (sensors != null) {
+            Sensor g = sensors.getDefaultSensor(Sensor.TYPE_GRAVITY);
+            if (g == null) g = sensors.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
+            if (g != null) sensors.registerListener(gravityListener, g, SensorManager.SENSOR_DELAY_UI);
+        }
     }
 
     @Override
     protected void onStop() {
         link.stop();
+        if (sensors != null) sensors.unregisterListener(gravityListener);
         super.onStop();
     }
 
@@ -115,7 +143,11 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
         FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(Color.BLACK);
         boardView = new BoardView(this);
-        boardView.setCalibrationListener(this::onCalibrationPoints);
+        boardView.setCalibrationListener(pts -> {
+            // Tapping by hand after a failed Auto: back to the step-by-step hints.
+            if (autoMsg != null && autoMsg.startsWith("Auto:")) autoMsg = null;
+            onCalibrationPoints(pts);
+        });
         root.addView(boardView, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
         LinearLayout top = new LinearLayout(this);
@@ -144,7 +176,7 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
         calBar = new LinearLayout(this);
         calBar.setOrientation(LinearLayout.VERTICAL);
         bottom.addView(calBar);
-        TextView zl = label(calBar, "Zoom (set this first, then place the 4 points)", 13);
+        TextView zl = label(calBar, "Zoom (set this first, then Auto – or tap the 4 points)", 13);
         zl.setPadding(dp(4), 0, 0, 0);
         zoomBar = new SeekBar(this);
         zoomBar.setMax(100);
@@ -158,7 +190,8 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
         });
         calBar.addView(zoomBar);
         LinearLayout cr = row(calBar);
-        button(cr, "Reset points", v -> boardView.clearCalibration());
+        button(cr, "Auto", v -> requestAutoCalibration());
+        button(cr, "Reset points", v -> { autoMsg = null; boardView.clearCalibration(); });
         button(cr, "Tablet address", v -> askTabletAddress());
         button(cr, "Done", v -> finishCalibration());
 
@@ -178,6 +211,8 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
     private void updateHint() {
         if (boardView.calibrating()) {
             int n = calPointCount;
+            if (autoRunning) { hintText.setText("Looking for the board…"); return; }
+            if (autoMsg != null) { hintText.setText(autoMsg); return; }
             if (n < 4) hintText.setText("Tap the OUTER edge of the double ring in the middle of segment "
                     + Board.CALIBRATION_LABELS[n] + ". (" + (n + 1) + "/4)");
             else hintText.setText("Drag the yellow circles until the green lines sit on the wires, then tap Done.");
@@ -197,10 +232,50 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
     private void startCalibration() {
         boardView.setCalibrating(true);
         paused = true;
+        autoMsg = null;
         List<float[]> pts = currentCalPointsInFrame();
         boardView.setCalibrationPoints(pts);
         onCalibrationPoints(pts);
         showMode();
+        // First time: try to find the board right away.
+        if (pendingCal == null) requestAutoCalibration();
+    }
+
+    /** Find the board in the next camera frame (AutoCalibrator), then show the result for checking. */
+    private void requestAutoCalibration() {
+        if (autoRunning) return;
+        autoRunning = true;
+        autoMsg = null;
+        autoCalRequested = true;
+        updateHint();
+    }
+
+    /** Runs on the analysis thread with the upright frame. */
+    private void runAutoCalibration(Bitmap frame) {
+        int w = frame.getWidth(), h = frame.getHeight();
+        int[] px = new int[w * h];
+        frame.getPixels(px, 0, w, 0, 0, w, h);
+        // The frame is upright in the phone's portrait axes (x right, y down); gravity is measured
+        // with y up, and the sensor reports the push against gravity, i.e. "up".
+        AutoCalibrator.Result r = AutoCalibrator.find(px, w, h, gravX, -gravY);
+        runOnUiThread(() -> onAutoCalibration(r));
+    }
+
+    private void onAutoCalibration(AutoCalibrator.Result r) {
+        autoRunning = false;
+        if (!boardView.calibrating()) return;
+        if (r.ok()) {
+            List<float[]> pts = new ArrayList<>();
+            for (double[] p : r.calPoints) pts.add(new float[]{(float) p[0], (float) p[1]});
+            boardView.setCalibrationPoints(pts);
+            autoMsg = "Board found. Check that 20 is at the top and the green lines sit on the wires "
+                    + "(drag the yellow circles if not), then tap Done.";
+            onCalibrationPoints(pts);
+            buzz(25);
+        } else {
+            autoMsg = "Auto: " + r.failReason + ". Tap Auto again, or tap the 4 points by hand.";
+            updateHint();
+        }
     }
 
     private void onCalibrationPoints(List<float[]> pts) {
@@ -248,6 +323,7 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
         calChanged = true;
         boardView.setCalibrating(false);
         paused = false;
+        autoMsg = null;
         visit.clear();
         boardView.clearMarks();
         showMode();
@@ -334,6 +410,10 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
                     runOnUiThread(() -> { if (!boardView.calibrating()) boardView.setBoardToImage(b2i); });
                 } catch (Exception ignored) { }
             }
+        }
+        if (autoCalRequested) {
+            autoCalRequested = false;
+            runAutoCalibration(upright);
         }
         Runnable task = detectorTask;
         if (task != null) { detectorTask = null; task.run(); }

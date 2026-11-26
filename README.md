@@ -26,9 +26,12 @@ Setup:
 2. DartCounter: use **single-dart input** (SINGLE / DOUBLE / TRIPLE + numbers, then SUBMIT).
 3. Phone: install `DartCam.apk`, allow the camera, put phone and tablet on the same Wi-Fi.
    DartCam finds the tablet by itself (the address can be typed in as a fallback: tap the status line).
-4. Fix the phone so it can't move, tap **Calibrate**, set the zoom so the board fills the picture,
-   then tap the **outer edge of the double ring** in the middle of 20 (top), 6 (right), 3 (bottom), 11 (left).
-   Drag the yellow circles until the green wireframe sits on the wires, tap **Done**.
+4. Fix the phone so it can't move, pull the darts out of the board, tap **Calibrate** and set the zoom so the
+   board fills the picture. Tap **Auto**: DartCam finds the board by itself (the first time it tries right away).
+   Check that **20 is at the top** and the green wireframe sits on the wires, then tap **Done**.
+   If Auto can't find the board (dark room, darts in the board, a board that isn't red/green), tap the
+   **outer edge of the double ring** in the middle of 20 (top), 6 (right), 3 (bottom), 11 (left) by hand.
+   Either way the yellow circles can be dragged until the wireframe fits.
 5. Play. Each dart is shown on the phone and entered in DartCounter; pulling the darts out submits the visit.
    Buttons: **Undo** (last dart), **Miss** (dart missed the board / bounced out), **Board clear ▶** (submit
    when the takeout was not noticed). A wrong dart can also be fixed directly in DartCounter.
@@ -39,7 +42,11 @@ How the detection works (`cam/.../core/DartDetector.java`, plain Java): it waits
 compares it with the previous still picture, and takes the changed area as the new dart. The 4 calibration
 points give a homography to board millimetres and also the camera's position; since darts stick out towards
 the camera, the tip is the part of the dart nearest to the camera's foot point on the board. A takeout is
-noticed when the board looks empty again. `tools/dartcam-sim/SimTest.java` tests this on simulated camera
+noticed when the board looks empty again. **Auto** (`cam/.../core/AutoCalibrator.java`) looks for the red/green double and treble rings, fits an ellipse
+to the double ring, reads the 20 segments around it, takes the 20 from the phone's gravity sensor (the board
+hangs with 20 at the top) and fits the homography to ~270 measured ring edges and wires.
+`tools/dartcam-sim/AutoCalTest.java` checks it on simulated colour pictures; `AutoCalPhoto.java` runs it on a
+real photo and draws the result. `tools/dartcam-sim/SimTest.java` tests the dart detection on simulated camera
 views (5 camera positions, noise, takeouts, an exposure jump): about 90% exact, tip error ~2 mm, and the
 misses are darts placed on purpose within ~2 mm of a wire.
 
