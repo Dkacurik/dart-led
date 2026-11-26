@@ -3,6 +3,9 @@ package sk.kacurik.dartcam;
 import android.Manifest;
 import android.annotation.SuppressLint;
 import android.app.AlertDialog;
+import android.content.ContentResolver;
+import android.content.ContentValues;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
@@ -12,7 +15,11 @@ import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
+import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
+import android.provider.MediaStore;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
 import android.text.InputType;
@@ -42,11 +49,17 @@ import androidx.camera.lifecycle.ProcessCameraProvider;
 
 import com.google.common.util.concurrent.ListenableFuture;
 
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.OutputStream;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
 import sk.kacurik.dartcam.core.AutoCalibrator;
 import sk.kacurik.dartcam.core.Board;
@@ -93,9 +106,31 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
 
     // Keeping the calibration up to date while playing (analysis thread, except keepCalibrated).
     private volatile boolean keepCalibrated = true;
-    private long lastRecheckMs;
+    private long lastRecheckMs, lastFailRecordMs;
     private double[][] recheckCandidate;  // last found points (frame px), adopted when the next run agrees
     private static final long RECHECK_MS = 3000, RECHECK_CONFIRM_MS = 1000;
+
+    // ---- diagnostics: what Auto saw and decided (last few runs), for "Send debug" ----
+    private static final class AutoRecord {
+        final Bitmap frame; final String trigger; final AutoCalibrator.Result r;
+        final float gx, gy, zoom; final long time; final String outcome;
+        AutoRecord(Bitmap frame, String trigger, AutoCalibrator.Result r, float gx, float gy, float zoom, String outcome) {
+            this.frame = frame; this.trigger = trigger; this.r = r; this.gx = gx; this.gy = gy; this.zoom = zoom;
+            this.time = System.currentTimeMillis(); this.outcome = outcome;
+        }
+    }
+    private final ArrayDeque<AutoRecord> records = new ArrayDeque<>();
+    private volatile Bitmap lastFull, lastUpright; // newest camera frame (full-res, sensor orientation) and its analysis copy
+    private volatile int lastFullRot;
+
+    private void record(Bitmap frame, String trigger, AutoCalibrator.Result r, String outcome) {
+        ZoomState zs = zoomState();
+        AutoRecord rec = new AutoRecord(frame, trigger, r, gravX, gravY, zs == null ? Float.NaN : zs.getZoomRatio(), outcome);
+        synchronized (records) {
+            records.addLast(rec);
+            while (records.size() > 12) records.removeFirst();
+        }
+    }
 
     /** "Calibration updated" note and until when to show it (UI thread). */
     private String calNote;
@@ -223,8 +258,10 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
         LinearLayout cr = row(calBar);
         button(cr, "Auto", v -> requestAutoCalibration());
         button(cr, "Reset points", v -> { autoMsg = null; boardView.clearCalibration(); });
-        button(cr, "Tablet address", v -> askTabletAddress());
         button(cr, "Done", v -> finishCalibration());
+        LinearLayout cr2 = row(calBar);
+        button(cr2, "Tablet address", v -> askTabletAddress());
+        button(cr2, "Send debug", v -> sendDebug());
 
         root.addView(bottom, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM));
         setContentView(root);
@@ -288,7 +325,7 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
     }
 
     // Auto-zoom: rounds of "find the board, set the zoom so it fills the picture, look again".
-    private int autoRound;
+    private volatile int autoRound;
     private boolean autoZoomedOut;
     private static final double BOARD_VIEW_MM = 225; // number ring + flights must stay in the picture
     private static final double BOARD_FILL = 0.92;
@@ -313,6 +350,7 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
         // The frame is upright in the phone's portrait axes (x right, y down); gravity is measured
         // with y up, and the sensor reports the push against gravity, i.e. "up".
         AutoCalibrator.Result r = AutoCalibrator.find(px, w, h, gravX, -gravY);
+        record(frame, "auto-round" + autoRound, r, "");
         runOnUiThread(() -> onAutoCalibration(r));
     }
 
@@ -351,7 +389,9 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
             onCalibrationPoints(pts);
             buzz(25);
         } else {
-            autoMsg = "Auto: " + r.failReason + ". Tap Auto again, or tap the 4 points by hand.";
+            autoMsg = "Auto: " + r.failReason
+                    + (r.inliers > 0 ? String.format(Locale.ROOT, " [%d points, rms %.1f px, pattern %.0f%%]", r.inliers, r.rmsPx, r.patternMatch * 100) : "")
+                    + ". Tap Auto again, or tap the 4 points by hand. (Send debug helps me fix it.)";
             updateHint();
         }
     }
@@ -427,7 +467,11 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
         int[] px = new int[w * h];
         frame.getPixels(px, 0, w, 0, 0, w, h);
         AutoCalibrator.Result r = AutoCalibrator.find(px, w, h, gravX, -gravY);
-        if (!r.ok()) { recheckCandidate = null; return; }
+        if (!r.ok()) {
+            recheckCandidate = null;
+            if (now - lastFailRecordMs > 30000) { lastFailRecordMs = now; record(frame, "recheck", r, "failed"); }
+            return;
+        }
         double shift = 0, agree = recheckCandidate == null ? Double.MAX_VALUE : 0;
         for (int i = 0; i < 4; i++) {
             shift = Math.max(shift, Math.hypot(r.calPoints[i][0] - c[i * 2] * w, r.calPoints[i][1] - c[i * 2 + 1] * h));
@@ -436,8 +480,13 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
         }
         boolean worth = shift > 3 || shift > 1.0 && detector.dartsInVisit() == 0;
         if (!worth) { recheckCandidate = null; return; }
-        if (agree > 0.7) { recheckCandidate = r.calPoints; return; } // confirm with the next run
+        if (agree > 0.7) { // confirm with the next run
+            recheckCandidate = r.calPoints;
+            record(frame, "recheck", r, String.format(Locale.ROOT, "candidate, shift %.1f px", shift));
+            return;
+        }
         recheckCandidate = null;
+        record(frame, "recheck", r, String.format(Locale.ROOT, "adopted, shift %.1f px, darts in board %d", shift, detector.dartsInVisit()));
         List<float[]> pts = new ArrayList<>();
         for (double[] p : r.calPoints) pts.add(new float[]{(float) p[0], (float) p[1]});
         double moved = shift;
@@ -453,6 +502,101 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
             buzz(20);
             updateHint();
         });
+    }
+
+    /**
+     * Pack the last Auto runs (pictures + what Auto decided) and the current camera picture into one
+     * zip in Downloads/DartCam and open the share sheet, so the pictures can be sent for tuning.
+     */
+    private void sendDebug() {
+        List<AutoRecord> recs;
+        synchronized (records) { recs = new ArrayList<>(records); }
+        Bitmap full = lastFull, cur = lastUpright;
+        int fullRot = lastFullRot;
+        ZoomState zs = zoomState();
+        float[] cal = pendingCal;
+        String stamp = new java.text.SimpleDateFormat("yyyyMMdd-HHmmss", Locale.ROOT).format(new java.util.Date());
+        String name = "dartcam-debug-" + stamp + ".zip";
+        hintText.setText("Packing debug pictures…");
+        new Thread(() -> {
+            try {
+                Uri uri = null;
+                File file = null;
+                OutputStream os;
+                if (Build.VERSION.SDK_INT >= 29) {
+                    ContentValues v = new ContentValues();
+                    v.put(MediaStore.MediaColumns.DISPLAY_NAME, name);
+                    v.put(MediaStore.MediaColumns.MIME_TYPE, "application/zip");
+                    v.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/DartCam");
+                    ContentResolver cr = getContentResolver();
+                    uri = cr.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, v);
+                    if (uri == null) throw new IllegalStateException("cannot create the file in Downloads");
+                    os = cr.openOutputStream(uri);
+                } else {
+                    file = new File(getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), name);
+                    os = new FileOutputStream(file);
+                }
+                StringBuilder info = new StringBuilder();
+                info.append("device=").append(Build.MANUFACTURER).append(' ').append(Build.MODEL).append(" sdk=").append(Build.VERSION.SDK_INT).append('\n');
+                if (full != null) info.append("stream=").append(full.getWidth()).append('x').append(full.getHeight()).append(" rotation=").append(fullRot).append('\n');
+                if (zs != null) info.append(String.format(Locale.ROOT, "zoom=%.3f min=%.3f max=%.3f linear=%.3f%n",
+                        zs.getZoomRatio(), zs.getMinZoomRatio(), zs.getMaxZoomRatio(), zs.getLinearZoom()));
+                info.append(String.format(Locale.ROOT, "gravity=%.3f,%.3f keepCalibrated=%b%n", gravX, gravY, keepCalibrated));
+                if (cal != null) {
+                    info.append("calibration(normalised)=");
+                    for (float f : cal) info.append(String.format(Locale.ROOT, "%.5f,", f));
+                    info.append('\n');
+                }
+                try (ZipOutputStream z = new ZipOutputStream(os)) {
+                    int i = 0;
+                    for (AutoRecord rec : recs) {
+                        String fn = String.format(Locale.ROOT, "%02d-%s.png", i++, rec.trigger);
+                        z.putNextEntry(new ZipEntry(fn));
+                        rec.frame.compress(Bitmap.CompressFormat.PNG, 100, z);
+                        z.closeEntry();
+                        AutoCalibrator.Result r = rec.r;
+                        info.append(fn).append('\t')
+                                .append(String.format(Locale.ROOT, "time=%tT gx=%.3f gy=%.3f zoom=%.3f size=%dx%d ok=%b",
+                                        rec.time, rec.gx, rec.gy, rec.zoom, rec.frame.getWidth(), rec.frame.getHeight(), r.ok()))
+                                .append(String.format(Locale.ROOT, " rms=%.3f inliers=%d pattern=%.3f", r.rmsPx, r.inliers, r.patternMatch))
+                                .append(" reason=").append(r.failReason == null ? "-" : r.failReason.replace(' ', '_'))
+                                .append(" outcome=").append(rec.outcome.isEmpty() ? "-" : rec.outcome.replace(' ', '_'));
+                        if (r.calPoints != null) {
+                            info.append(" points=");
+                            for (double[] p : r.calPoints) info.append(String.format(Locale.ROOT, "%.2f:%.2f;", p[0], p[1]));
+                        }
+                        info.append('\n');
+                    }
+                    if (cur != null) {
+                        z.putNextEntry(new ZipEntry("current.png"));
+                        cur.compress(Bitmap.CompressFormat.PNG, 100, z);
+                        z.closeEntry();
+                    }
+                    if (full != null) {
+                        z.putNextEntry(new ZipEntry("current-full.jpg"));
+                        uprightFull(full, fullRot).compress(Bitmap.CompressFormat.JPEG, 92, z);
+                        z.closeEntry();
+                    }
+                    z.putNextEntry(new ZipEntry("info.txt"));
+                    z.write(info.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                    z.closeEntry();
+                }
+                Uri shareUri = uri;
+                File saved = file;
+                int n = recs.size();
+                runOnUiThread(() -> {
+                    hintText.setText("Saved " + n + " Auto pictures to " + (shareUri != null ? "Downloads/DartCam/" + name : saved.getPath()));
+                    if (shareUri != null) {
+                        Intent send = new Intent(Intent.ACTION_SEND).setType("application/zip")
+                                .putExtra(Intent.EXTRA_STREAM, shareUri)
+                                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                        startActivity(Intent.createChooser(send, "Send DartCam debug"));
+                    }
+                });
+            } catch (Exception e) {
+                runOnUiThread(() -> hintText.setText("Send debug failed: " + e.getMessage()));
+            }
+        }, "debug-zip").start();
     }
 
     /** Latest calibration points (frame pixels) as placed/dragged in the BoardView. */
@@ -510,6 +654,8 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
         try {
             src = image.toBitmap();
             rot = image.getImageInfo().getRotationDegrees();
+            lastFull = src;
+            lastFullRot = rot;
             Matrix m = new Matrix();
             m.postRotate(rot);
             scale = (float) ANALYSIS_LONG_SIDE / Math.max(src.getWidth(), src.getHeight());
@@ -520,6 +666,7 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
         } finally {
             image.close();
         }
+        lastUpright = upright;
         int w = upright.getWidth(), h = upright.getHeight();
         if (detector == null || w != frameW || h != frameH) {
             frameW = w;
