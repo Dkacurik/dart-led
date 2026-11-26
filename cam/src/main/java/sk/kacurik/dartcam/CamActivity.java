@@ -50,6 +50,7 @@ import sk.kacurik.dartcam.core.AutoCalibrator;
 import sk.kacurik.dartcam.core.Board;
 import sk.kacurik.dartcam.core.DartDetector;
 import sk.kacurik.dartcam.core.Homography;
+import sk.kacurik.dartcam.core.TipRefiner;
 
 /**
  * DartCam: the phone at the board. Watches the board with the camera, recognises each dart
@@ -72,6 +73,9 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
 
     // Touched only on the analysis thread.
     private DartDetector detector;
+    // Full-resolution camera picture (sensor orientation) of the last still frame = "before" the next dart.
+    private Bitmap beforeFull;
+    private int beforeRot;
     private volatile int frameW, frameH;
 
     // Set on the UI thread, picked up by the analysis thread.
@@ -81,6 +85,9 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
     private volatile Runnable detectorTask;   // small actions on the detector (undo, miss, board clear)
     private volatile boolean autoCalRequested; // run AutoCalibrator on the next camera frame
     private volatile float gravX, gravY = 9.81f; // gravity in device axes (portrait: x right, y up)
+
+    /** Note about the last dart's zoom re-check (corrected / close to a wire), shown in the hint. */
+    private String zoomNote;
 
     /** Message from the last Auto run, shown while calibrating; null = normal hints. */
     private String autoMsg;
@@ -221,7 +228,8 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
         } else if (paused) {
             hintText.setText("Paused");
         } else {
-            hintText.setText(visit.isEmpty() ? "Ready – throw!" : "Visit: " + String.join("  ", visit));
+            String v = visit.isEmpty() ? "Ready – throw!" : "Visit: " + String.join("  ", visit);
+            hintText.setText(zoomNote == null || visit.isEmpty() ? v : v + "\n" + zoomNote);
         }
     }
 
@@ -376,13 +384,15 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
 
     /** Runs on the analysis thread for every camera frame. */
     private void analyze(ImageProxy image) {
-        Bitmap upright;
+        Bitmap upright, src;
+        int rot;
+        float scale;
         try {
-            Bitmap src = image.toBitmap();
-            int rot = image.getImageInfo().getRotationDegrees();
+            src = image.toBitmap();
+            rot = image.getImageInfo().getRotationDegrees();
             Matrix m = new Matrix();
             m.postRotate(rot);
-            float scale = (float) ANALYSIS_LONG_SIDE / Math.max(src.getWidth(), src.getHeight());
+            scale = (float) ANALYSIS_LONG_SIDE / Math.max(src.getWidth(), src.getHeight());
             m.postScale(scale, scale);
             upright = Bitmap.createBitmap(src, 0, 0, src.getWidth(), src.getHeight(), m, true);
         } catch (Exception e) {
@@ -399,6 +409,7 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
         }
         if (calChanged) {
             calChanged = false;
+            beforeFull = null;
             float[] c = pendingCal;
             if (c != null) {
                 double[][] img = new double[4][];
@@ -428,23 +439,83 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
             }
             ev = detector.feed(px);
         }
+        TipRefiner.Result zoom = null;
+        if (ev != null && ev.type == DartDetector.Type.DART && beforeFull != null) {
+            zoom = zoomRecheck(ev, beforeFull, beforeRot, src, rot, 1f / scale, w, h);
+        }
+        // The last still picture becomes the "before" of the next dart (also right after a dart).
+        if (!paused && detector.calibrated() && detector.idle()) { beforeFull = src; beforeRot = rot; }
+        else if (paused) beforeFull = null;
         DartDetector.Event event = ev;
+        TipRefiner.Result z = zoom;
         runOnUiThread(() -> {
             boardView.setFrame(upright);
-            if (event != null) onDetectorEvent(event);
+            if (event != null) onDetectorEvent(event, z);
         });
+    }
+
+    /**
+     * Digital zoom: cut the window around the detected tip out of the full-resolution pictures
+     * before and after the dart and measure the tip again there (analysis thread, a few ms).
+     * @param full crop pixels per analysis pixel
+     */
+    private TipRefiner.Result zoomRecheck(DartDetector.Event ev, Bitmap before, int beforeRotation,
+                                          Bitmap after, int afterRotation, float full, int aw, int ah) {
+        try {
+            if (beforeRotation != afterRotation || before.getWidth() != after.getWidth()
+                    || before.getHeight() != after.getHeight()) return null;
+            double[] win = TipRefiner.window(ev.imgX, ev.imgY, detector.imgToBoard(), aw, ah);
+            Bitmap b = uprightFull(before, beforeRotation), a = uprightFull(after, afterRotation);
+            int x0 = (int) Math.floor(win[0] * full), y0 = (int) Math.floor(win[1] * full);
+            int x1 = Math.min(a.getWidth(), (int) Math.ceil(win[2] * full));
+            int y1 = Math.min(a.getHeight(), (int) Math.ceil(win[3] * full));
+            int cw = x1 - x0, ch = y1 - y0;
+            if (cw < 8 || ch < 8) return null;
+            int[] gb = grayCrop(b, x0, y0, cw, ch), ga = grayCrop(a, x0, y0, cw, ch);
+            return TipRefiner.refine(gb, ga, cw, ch, x0 / full, y0 / full, full,
+                    ev.imgX, ev.imgY, ev.hit, detector.imgToBoard(), detector.cameraFoot(), 28);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static Bitmap uprightFull(Bitmap src, int rotation) {
+        if (rotation == 0) return src;
+        Matrix m = new Matrix();
+        m.postRotate(rotation);
+        return Bitmap.createBitmap(src, 0, 0, src.getWidth(), src.getHeight(), m, false);
+    }
+
+    private static int[] grayCrop(Bitmap b, int x0, int y0, int cw, int ch) {
+        int[] px = new int[cw * ch];
+        b.getPixels(px, 0, cw, x0, y0, cw, ch);
+        for (int i = 0; i < px.length; i++) {
+            int c = px[i];
+            px[i] = (((c >> 16) & 0xff) * 77 + ((c >> 8) & 0xff) * 150 + (c & 0xff) * 29) >> 8;
+        }
+        return px;
     }
 
     // ---------------- game flow ----------------
 
-    private void onDetectorEvent(DartDetector.Event e) {
+    private void onDetectorEvent(DartDetector.Event e, TipRefiner.Result zoom) {
         if (e.type == DartDetector.Type.DART) {
             String label = e.hit.label();
+            float mx = (float) e.imgX, my = (float) e.imgY;
+            zoomNote = null;
+            if (zoom != null && zoom.ok) {
+                if (zoom.changed) zoomNote = label + " → " + zoom.hit.label() + " (zoom re-check)";
+                label = zoom.hit.label();
+                mx = (float) zoom.tipX; my = (float) zoom.tipY;
+                if (zoom.closeCall) zoomNote = (zoomNote == null ? label : zoomNote)
+                        + String.format(Locale.ROOT, " – close to a wire (%.1f mm), please check", zoom.wireMm);
+            }
             visit.add(label);
-            boardView.addMark((float) e.imgX, (float) e.imgY, label);
+            boardView.addMark(mx, my, label);
             link.send("DART " + label);
             buzz(35);
         } else {
+            zoomNote = null;
             // Darts pulled out: the visit is over.
             link.send("SUBMIT");
             visit.clear();
@@ -459,6 +530,7 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
         visit.remove(visit.size() - 1);
         boardView.removeLastMark();
         link.send("UNDO");
+        zoomNote = null;
         detectorTask = () -> { if (detector != null) detector.forgetLastDart(); };
         updateHint();
     }
@@ -474,6 +546,7 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
     /** The darts are out but the camera did not notice: finish the visit by hand. */
     private void boardClear() {
         link.send("SUBMIT");
+        zoomNote = null;
         visit.clear();
         boardView.clearMarks();
         detectorTask = () -> { if (detector != null) detector.markEmpty(); };
