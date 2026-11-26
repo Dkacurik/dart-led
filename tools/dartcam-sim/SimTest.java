@@ -107,6 +107,21 @@ public class SimTest {
         check(Board.score(0, 175).label().equals("MISS"), "miss scoring");
         double[] d16 = Board.pointFor(16, 166);
         check(Board.score(d16[0], d16[1]).label().equals("D16"), "D16 via pointFor");
+        // Independent of Board.ORDER: regulation clockwise order from the top.
+        int[] regulation = {20, 1, 18, 4, 13, 6, 10, 15, 2, 17, 3, 19, 7, 16, 8, 11, 14, 9, 12, 5};
+        check(Arrays.equals(Board.order(), regulation), "segment order is the regulation order");
+        for (int i = 0; i < 20; i++) {
+            double a = Math.toRadians(i * 18.0);
+            String got = Board.score(130 * Math.sin(a), -130 * Math.cos(a)).label();
+            check(got.equals("S" + regulation[i]), "segment at " + (i * 18) + "° is " + regulation[i] + ", got " + got);
+        }
+        check(Board.score(-130, 0).label().equals("S11"), "11 is at the left");
+        check(Board.score(0, 130).label().equals("S3"), "3 is at the bottom");
+        check(Board.score(130, 0).label().equals("S6"), "6 is at the right");
+        double[] p11 = Board.pointFor(11, 130);
+        check(p11[0] < -129 && Math.abs(p11[1]) < 1, "pointFor(11) at the left");
+        if (failures > 0) { System.out.println(failures + " CHECK FAILURES (board geometry)"); System.exit(1); }
+        System.out.println("board geometry OK");
 
         double[][] cams = {
                 {-180, 260, -420, 520, 0},

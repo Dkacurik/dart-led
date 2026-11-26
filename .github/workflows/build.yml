@@ -20,6 +20,10 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Accept Android SDK licenses
         run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+      - name: Sim tests
+        run: |
+          javac -d "$RUNNER_TEMP/sim" cam/src/main/java/sk/kacurik/dartcam/core/*.java tools/dartcam-sim/*.java
+          java -cp "$RUNNER_TEMP/sim" SimTest
       - name: Build
         run: ./gradlew :app:assembleDebug :cam:assembleDebug --no-daemon --stacktrace
       - name: Publish download

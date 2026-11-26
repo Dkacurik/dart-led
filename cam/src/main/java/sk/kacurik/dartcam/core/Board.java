@@ -15,7 +15,7 @@ public final class Board {
     public static final double R_DOUBLE_IN = 162.0;
     public static final double R_DOUBLE_OUT = 170.0;
 
-    private static final int[] ORDER = {20, 1, 18, 4, 13, 6, 10, 15, 2, 17, 3, 19, 7, 16, 11, 14, 9, 12, 5, 8};
+    private static final int[] ORDER = {20, 1, 18, 4, 13, 6, 10, 15, 2, 17, 3, 19, 7, 16, 8, 11, 14, 9, 12, 5};
 
     /** Clockwise segment order from the top (20 entries). */
     public static int[] order() { return ORDER.clone(); }
