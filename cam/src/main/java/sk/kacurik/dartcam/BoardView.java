@@ -34,6 +34,24 @@ public final class BoardView extends View {
         public Mark(float x, float y, String label) { this.x = x; this.y = y; this.label = label; }
     }
 
+    /**
+     * Close-up of the last dart: a full-resolution crop of the camera picture around the tip.
+     * Crop pixel (cx, cy) covers frame [x0 + cx / scale, ...).
+     */
+    public static final class Zoom {
+        final Bitmap crop; final float x0, y0, scale, tipX, tipY; final String label; final boolean close;
+        public Zoom(Bitmap crop, float x0, float y0, float scale, float tipX, float tipY, String label, boolean close) {
+            this.crop = crop; this.x0 = x0; this.y0 = y0; this.scale = scale;
+            this.tipX = tipX; this.tipY = tipY; this.label = label; this.close = close;
+        }
+    }
+
+    private Zoom zoom;
+    private final RectF zoomRect = new RectF();
+    private final Paint zoomWire = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint zoomFrame = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint bitmapPaint = new Paint(Paint.FILTER_BITMAP_FLAG);
+
     private Bitmap frame;
     private final Matrix toView = new Matrix(), toFrame = new Matrix();
     private Homography boardToImg;
@@ -67,6 +85,10 @@ public final class BoardView extends View {
         markPaint.setStyle(Paint.Style.STROKE);
         markPaint.setStrokeWidth(3 * dp);
         setBackgroundColor(Color.BLACK);
+        zoomWire.setStyle(Paint.Style.STROKE);
+        zoomWire.setStrokeWidth(1.2f * dp);
+        zoomWire.setColor(Color.argb(200, 64, 255, 64));
+        zoomFrame.setStyle(Paint.Style.STROKE);
     }
 
     public void setCalibrationListener(CalibrationListener l) { calListener = l; }
@@ -102,6 +124,9 @@ public final class BoardView extends View {
 
     public void clearMarks() { marks.clear(); invalidate(); }
 
+    /** Show the close-up of the last dart (null hides it). */
+    public void setZoom(Zoom z) { zoom = z; invalidate(); }
+
     private void updateMatrix() {
         if (frame == null || getWidth() == 0) return;
         RectF src = new RectF(0, 0, frame.getWidth(), frame.getHeight());
@@ -132,6 +157,60 @@ public final class BoardView extends View {
             c.drawCircle(v[0], v[1], 9 * dp, markPaint);
             label(c, m.label, v[0] + 12 * dp, v[1] + 6 * dp);
         }
+        if (zoom != null && !calibrating) drawZoom(c, zoom);
+    }
+
+    /** The close-up, on the side of the screen away from the dart. */
+    private void drawZoom(Canvas c, Zoom z) {
+        float size = Math.min(getWidth() * 0.46f, getHeight() * 0.34f);
+        float[] tipView = view(z.tipX, z.tipY);
+        float left = tipView[0] > getWidth() / 2f ? 8 * dp : getWidth() - size - 8 * dp;
+        float top = getHeight() * 0.22f;
+        float k = size / Math.max(z.crop.getWidth(), z.crop.getHeight()); // inset px per crop px
+        float w = z.crop.getWidth() * k, h = z.crop.getHeight() * k;
+        zoomRect.set(left, top, left + w, top + h);
+
+        c.save();
+        c.clipRect(zoomRect);
+        c.drawBitmap(z.crop, null, zoomRect, bitmapPaint);
+        if (boardToImg != null) {
+            // Rings: many short pieces (curved by perspective); segment wires are straight lines.
+            double[] rings = {Board.R_INNER_BULL, Board.R_OUTER_BULL, Board.R_TREBLE_IN, Board.R_TREBLE_OUT, Board.R_DOUBLE_IN, Board.R_DOUBLE_OUT};
+            for (double r : rings) {
+                Path p = new Path();
+                for (int i = 0; i <= 720; i++) {
+                    double a = i * 2 * Math.PI / 720;
+                    float[] v = boardToZoom(z, r * Math.sin(a), -r * Math.cos(a));
+                    if (i == 0) p.moveTo(v[0], v[1]); else p.lineTo(v[0], v[1]);
+                }
+                c.drawPath(p, zoomWire);
+            }
+            for (int i = 0; i < 20; i++) {
+                double a = Math.toRadians(i * 18 - 9);
+                float[] a1 = boardToZoom(z, Board.R_OUTER_BULL * Math.sin(a), -Board.R_OUTER_BULL * Math.cos(a));
+                float[] a2 = boardToZoom(z, Board.R_DOUBLE_OUT * Math.sin(a), -Board.R_DOUBLE_OUT * Math.cos(a));
+                c.drawLine(a1[0], a1[1], a2[0], a2[1], zoomWire);
+            }
+        }
+        float tx = left + (z.tipX - z.x0) * z.scale * k, ty = top + (z.tipY - z.y0) * z.scale * k;
+        c.drawCircle(tx, ty, 7 * dp, markPaint);
+        c.drawLine(tx - 12 * dp, ty, tx - 4 * dp, ty, markPaint);
+        c.drawLine(tx + 4 * dp, ty, tx + 12 * dp, ty, markPaint);
+        c.drawLine(tx, ty - 12 * dp, tx, ty - 4 * dp, markPaint);
+        c.drawLine(tx, ty + 4 * dp, tx, ty + 12 * dp, markPaint);
+        c.restore();
+
+        zoomFrame.setColor(z.close ? Color.YELLOW : Color.WHITE);
+        zoomFrame.setStrokeWidth((z.close ? 4 : 2) * dp);
+        c.drawRect(zoomRect, zoomFrame);
+        String s = z.close ? z.label + "  close – check" : z.label;
+        label(c, s, left + 6 * dp, top + h - 8 * dp);
+    }
+
+    private float[] boardToZoom(Zoom z, double bx, double by) {
+        double[] p = boardToImg.map(bx, by);
+        return new float[]{zoomRect.left + (float) ((p[0] - z.x0) * z.scale) * (zoomRect.width() / z.crop.getWidth()),
+                zoomRect.top + (float) ((p[1] - z.y0) * z.scale) * (zoomRect.height() / z.crop.getHeight())};
     }
 
     private void drawBoard(Canvas c) {
@@ -185,6 +264,12 @@ public final class BoardView extends View {
 
     @Override
     public boolean onTouchEvent(MotionEvent e) {
+        if (!calibrating && zoom != null && e.getActionMasked() == MotionEvent.ACTION_DOWN
+                && zoomRect.contains(e.getX(), e.getY())) {
+            zoom = null; // tap the close-up to hide it
+            invalidate();
+            return true;
+        }
         if (!calibrating || frame == null) return false;
         float[] f = toFramePoint(e.getX(), e.getY());
         switch (e.getActionMasked()) {

@@ -33,6 +33,10 @@ Setup:
    **outer edge of the double ring** in the middle of 20 (top), 6 (right), 3 (bottom), 11 (left) by hand.
    Either way the yellow circles can be dragged until the wireframe fits.
 5. Play. Each dart is shown on the phone and entered in DartCounter; pulling the darts out submits the visit.
+   After each dart a **close-up** of the dart appears (full camera resolution, with the wires drawn in) and
+   the number is **re-checked in that zoom**; the hint says when the zoom corrected the number, and the
+   close-up gets a yellow frame with "close – check" when the tip sits within ~1 mm of a wire. Tap the
+   close-up to hide it.
    Buttons: **Undo** (last dart), **Miss** (dart missed the board / bounced out), **Board clear ▶** (submit
    when the takeout was not noticed). A wrong dart can also be fixed directly in DartCounter.
 
@@ -42,7 +46,12 @@ How the detection works (`cam/.../core/DartDetector.java`, plain Java): it waits
 compares it with the previous still picture, and takes the changed area as the new dart. The 4 calibration
 points give a homography to board millimetres and also the camera's position; since darts stick out towards
 the camera, the tip is the part of the dart nearest to the camera's foot point on the board. A takeout is
-noticed when the board looks empty again. **Auto** (`cam/.../core/AutoCalibrator.java`) looks for the red/green double and treble rings, fits an ellipse
+noticed when the board looks empty again. **Zoom re-check** (`cam/.../core/TipRefiner.java`): the detector works on a 640 px copy of the camera picture;
+after each dart the window of ±40 mm around the tip is cut from the full-resolution pictures before and
+after the dart and the tip is measured again there (`tools/dartcam-sim/RefineTest.java`: 92% → 97% exact,
+tip error median 1.4 → 0.7 mm in the simulation).
+
+**Auto** (`cam/.../core/AutoCalibrator.java`) looks for the red/green double and treble rings, fits an ellipse
 to the double ring, reads the 20 segments around it, takes the 20 from the phone's gravity sensor (the board
 hangs with 20 at the top) and fits the homography to ~270 measured ring edges and wires.
 `tools/dartcam-sim/AutoCalTest.java` checks it on simulated colour pictures; `AutoCalPhoto.java` runs it on a

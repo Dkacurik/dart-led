@@ -241,6 +241,7 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
         boardView.setCalibrating(true);
         paused = true;
         autoMsg = null;
+        boardView.setZoom(null);
         List<float[]> pts = currentCalPointsInFrame();
         boardView.setCalibrationPoints(pts);
         onCalibrationPoints(pts);
@@ -439,7 +440,7 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
             }
             ev = detector.feed(px);
         }
-        TipRefiner.Result zoom = null;
+        ZoomShot zoom = null;
         if (ev != null && ev.type == DartDetector.Type.DART && beforeFull != null) {
             zoom = zoomRecheck(ev, beforeFull, beforeRot, src, rot, 1f / scale, w, h);
         }
@@ -447,11 +448,19 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
         if (!paused && detector.calibrated() && detector.idle()) { beforeFull = src; beforeRot = rot; }
         else if (paused) beforeFull = null;
         DartDetector.Event event = ev;
-        TipRefiner.Result z = zoom;
+        ZoomShot z = zoom;
         runOnUiThread(() -> {
             boardView.setFrame(upright);
             if (event != null) onDetectorEvent(event, z);
         });
+    }
+
+    /** Result of the zoom: the re-check (may be null / not ok) and the colour crop for the close-up. */
+    private static final class ZoomShot {
+        final TipRefiner.Result result; final Bitmap crop; final float x0, y0, scale;
+        ZoomShot(TipRefiner.Result r, Bitmap crop, float x0, float y0, float scale) {
+            this.result = r; this.crop = crop; this.x0 = x0; this.y0 = y0; this.scale = scale;
+        }
     }
 
     /**
@@ -459,7 +468,7 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
      * before and after the dart and measure the tip again there (analysis thread, a few ms).
      * @param full crop pixels per analysis pixel
      */
-    private TipRefiner.Result zoomRecheck(DartDetector.Event ev, Bitmap before, int beforeRotation,
+    private ZoomShot zoomRecheck(DartDetector.Event ev, Bitmap before, int beforeRotation,
                                           Bitmap after, int afterRotation, float full, int aw, int ah) {
         try {
             if (beforeRotation != afterRotation || before.getWidth() != after.getWidth()
@@ -472,8 +481,9 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
             int cw = x1 - x0, ch = y1 - y0;
             if (cw < 8 || ch < 8) return null;
             int[] gb = grayCrop(b, x0, y0, cw, ch), ga = grayCrop(a, x0, y0, cw, ch);
-            return TipRefiner.refine(gb, ga, cw, ch, x0 / full, y0 / full, full,
+            TipRefiner.Result r = TipRefiner.refine(gb, ga, cw, ch, x0 / full, y0 / full, full,
                     ev.imgX, ev.imgY, ev.hit, detector.imgToBoard(), detector.cameraFoot(), 28);
+            return new ZoomShot(r, Bitmap.createBitmap(a, x0, y0, cw, ch), x0 / full, y0 / full, full);
         } catch (Exception e) {
             return null;
         }
@@ -498,7 +508,8 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
 
     // ---------------- game flow ----------------
 
-    private void onDetectorEvent(DartDetector.Event e, TipRefiner.Result zoom) {
+    private void onDetectorEvent(DartDetector.Event e, ZoomShot shot) {
+        TipRefiner.Result zoom = shot == null ? null : shot.result;
         if (e.type == DartDetector.Type.DART) {
             String label = e.hit.label();
             float mx = (float) e.imgX, my = (float) e.imgY;
@@ -512,10 +523,13 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
             }
             visit.add(label);
             boardView.addMark(mx, my, label);
+            boardView.setZoom(shot == null ? null : new BoardView.Zoom(shot.crop, shot.x0, shot.y0, shot.scale,
+                    mx, my, label, zoom != null && zoom.ok && zoom.closeCall));
             link.send("DART " + label);
             buzz(35);
         } else {
             zoomNote = null;
+            boardView.setZoom(null);
             // Darts pulled out: the visit is over.
             link.send("SUBMIT");
             visit.clear();
@@ -531,6 +545,7 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
         boardView.removeLastMark();
         link.send("UNDO");
         zoomNote = null;
+        boardView.setZoom(null);
         detectorTask = () -> { if (detector != null) detector.forgetLastDart(); };
         updateHint();
     }
@@ -547,6 +562,7 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
     private void boardClear() {
         link.send("SUBMIT");
         zoomNote = null;
+        boardView.setZoom(null);
         visit.clear();
         boardView.clearMarks();
         detectorTask = () -> { if (detector != null) detector.markEmpty(); };
