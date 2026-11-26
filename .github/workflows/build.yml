@@ -24,6 +24,7 @@ jobs:
         run: |
           javac -d "$RUNNER_TEMP/sim" cam/src/main/java/sk/kacurik/dartcam/core/*.java tools/dartcam-sim/*.java
           java -cp "$RUNNER_TEMP/sim" SimTest
+          java -cp "$RUNNER_TEMP/sim" AutoCalTest
       - name: Build
         run: ./gradlew :app:assembleDebug :cam:assembleDebug --no-daemon --stacktrace
       - name: Publish download
