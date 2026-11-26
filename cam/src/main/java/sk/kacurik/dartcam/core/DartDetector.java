@@ -45,7 +45,8 @@ public final class DartDetector {
         public double occludedFraction = 0.12; // more than this changed = someone in front of the board
         public double maskRadiusMm = 260;     // area watched (board + surround, flights stick out)
         public int recoverFrames = 45;
-        public double outsideMarginMm = 5;    // "darts" with the tip further outside the double ring are ignored        // still frames after a big unexplained change before adopting it (~2 s)
+        public double outsideMarginMm = 5;
+        public double explainedReject = 0.88; // change explained this well by the old picture = not a dart    // "darts" with the tip further outside the double ring are ignored        // still frames after a big unexplained change before adopting it (~2 s)
     }
 
     private final int w, h;
@@ -197,6 +198,14 @@ public final class DartDetector {
             refVisit = cur;
             return null;
         }
+        lastExplained = explained(blob, cur, refVisit);
+        if (lastExplained >= p.explainedReject) {
+            ignoredChanges++;
+            // The old picture, a bit brighter/darker or shifted by a pixel, explains the change:
+            // flicker, exposure, moiré, camera shake – not a new object.
+            refVisit = cur;
+            return null;
+        }
         double[] tip = findTip(blob);
         double[] b = imgToBoard.map(tip[0], tip[1]);
         if (Math.hypot(b[0], b[1]) > Board.R_DOUBLE_OUT + p.outsideMarginMm) {
@@ -209,6 +218,41 @@ public final class DartDetector {
         dartsInVisit++;
         refVisit = cur;
         return new Event(Type.DART, tip[0], tip[1], b[0], b[1], hit, blob.length, dartsInVisit);
+    }
+
+    /** Share of the last evaluated change explained by the old picture (see explained()); for tests/tuning. */
+    public double lastExplained = Double.NaN;
+    /** How many changes were ignored as "not a new object" (for the debug record). */
+    public int ignoredChanges;
+
+    /**
+     * Share of the changed pixels that the old picture explains: shifted by at most 1 px and/or with a
+     * locally different brightness (factor fitted in a 9x9 window). Close to 1 for flicker bands,
+     * exposure steps, moiré or a tiny camera shake; clearly lower when a new object (a dart) appeared.
+     */
+    double explained(int[] blob, int[] cur, int[] ref) {
+        int explained = 0;
+        double tol = p.diffThreshold * 0.6;
+        for (int i : blob) {
+            int x = i % w, y = i / w;
+            double lxy = 0, lxx = 0;
+            for (int yy = Math.max(0, y - 4); yy <= Math.min(h - 1, y + 4); yy++)
+                for (int xx = Math.max(0, x - 4); xx <= Math.min(w - 1, x + 4); xx++) {
+                    int j = yy * w + xx;
+                    lxy += (double) cur[j] * ref[j]; lxx += (double) ref[j] * ref[j];
+                }
+            double kl = lxx > 0 ? lxy / lxx : 1;
+            boolean ok = false;
+            for (int dy = -1; dy <= 1 && !ok; dy++)
+                for (int dx = -1; dx <= 1 && !ok; dx++) {
+                    int nx = x + dx, ny = y + dy;
+                    if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+                    int r = ref[ny * w + nx];
+                    ok = Math.abs(cur[i] - r) <= tol || Math.abs(cur[i] - kl * r) <= tol;
+                }
+            if (ok) explained++;
+        }
+        return (double) explained / blob.length;
     }
 
     private Event takeout(int[] cur, int n) {

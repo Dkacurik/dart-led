@@ -58,6 +58,63 @@ public class RefineTest {
         }
     }
 
+    /**
+     * Testing on a screen: no darts, but rolling brightness bands (refresh beating with the exposure) and
+     * 1-px shifts of the whole picture (moiré moving with focus). Whatever the detector reports must be
+     * dropped by DartGate, as in the app.
+     */
+    static void screenFlicker() {
+        camera(new double[]{0, 330, -380, 520, 0});
+        Homography b2iFull = SimTest.boardToImg();
+        Homography i2bFull = b2iFull.inverse();
+        double[][] img = new double[4][];
+        for (int i = 0; i < 4; i++) {
+            double[] p = b2iFull.map(Board.CALIBRATION_POINTS[i][0], Board.CALIBRATION_POINTS[i][1]);
+            img[i] = new double[]{p[0] / S, p[1] / S};
+        }
+        DartDetector det = new DartDetector(W, H, null);
+        det.setCalibration(Homography.fromPoints(img, Board.CALIBRATION_POINTS));
+        int[] emptyFull = renderFull(i2bFull);
+        int[] beforeFull = null;
+        int raw = 0, scored = 0;
+        for (int i = 0; i < 8; i++) { int[] f = noisy(emptyFull, 3); det.feed(down(f)); if (det.idle()) beforeFull = f; }
+        for (int burst = 0; burst < 40; burst++) {
+            double phase = rnd.nextDouble() * 2 * Math.PI, period = 40 + rnd.nextInt(80), amp = 0.10 + rnd.nextDouble() * 0.08;
+            int shift = rnd.nextInt(3) - 1;
+            int[] fl = new int[FW * FH];
+            for (int y = 0; y < FH; y++) {
+                double k = 1 + amp * Math.sin(2 * Math.PI * y / period + phase);
+                for (int x = 0; x < FW; x++) {
+                    int sx = Math.max(0, Math.min(FW - 1, x + shift));
+                    fl[y * FW + x] = Math.min(255, (int) (emptyFull[y * FW + sx] * k));
+                }
+            }
+            for (int i = 0; i < 14; i++) {
+                int[] f = noisy(i < 12 ? fl : emptyFull, 3);
+                DartDetector.Event ev = det.feed(down(f));
+                if (ev != null && ev.type == DartDetector.Type.DART) {
+                    raw++;
+                    if (Boolean.getBoolean("feat")) System.out.printf(Locale.ROOT, "  FEAT phantom expl %.2f %s px %d burst %d frame %d amp %.2f period %.0f shift %d tip %.0f,%.0f%n", det.lastExplained, ev.hit, ev.pixels, burst, i, amp, period, shift, ev.imgX, ev.imgY);
+                    TipRefiner.Result rr = null;
+                    if (beforeFull != null) {
+                        double[] win = TipRefiner.window(ev.imgX, ev.imgY, det.imgToBoard(), W, H);
+                        int cx0 = (int) Math.floor(win[0] * S), cy0 = (int) Math.floor(win[1] * S);
+                        int cw = Math.min(FW, (int) Math.ceil(win[2] * S)) - cx0, ch = Math.min(FH, (int) Math.ceil(win[3] * S)) - cy0;
+                        rr = TipRefiner.refine(crop(beforeFull, cx0, cy0, cw, ch), crop(f, cx0, cy0, cw, ch), cw, ch,
+                                (double) cx0 / S, (double) cy0 / S, S, ev.imgX, ev.imgY, ev.hit, det.imgToBoard(), det.cameraFoot(), 28);
+                    }
+                    String why = DartGate.reject(ev.hit, rr);
+                    if (why == null) scored++;
+                    else det.forgetLastDart();
+                }
+                if (det.idle()) beforeFull = f;
+            }
+        }
+        System.out.printf(Locale.ROOT, "  screen flicker, no darts: detector saw %d \"darts\", %d scored after DartGate%n", raw, scored);
+        // Before the "explained by the old picture" check this gave 26 of 40 bursts as darts.
+        check(scored <= 2, "screen flicker: at most 2 phantom darts in 40 harsh flicker bursts");
+    }
+
     static int[] down(int[] full) {
         int[] o = new int[W * H];
         for (int y = 0; y < H; y++) for (int x = 0; x < W; x++) {
@@ -132,6 +189,7 @@ public class RefineTest {
                     for (int i = 0; i < 10; i++) { DartDetector.Event e = det.feed(noisy(sceneDown, 3)); if (ev == null) ev = e; }
                     if (ev == null || ev.type != DartDetector.Type.DART) continue;
                     total++; camTotal++;
+                    if (Boolean.getBoolean("feat")) System.out.printf(Locale.ROOT, "  FEAT dart expl %.2f%n", det.lastExplained);
                     boolean cOk = ev.hit.equals(expected);
                     if (cOk) { coarseOk++; camCoarse++; } else coarseWrong++;
                     cErr.add(Math.hypot(ev.boardX - bx, ev.boardY - by));
@@ -185,6 +243,7 @@ public class RefineTest {
         System.out.printf(Locale.ROOT, "  flagged 'close to wire': %d; wrong after re-check: %d flagged, %d NOT flagged (detector alone: %d wrong)%n",
                 flagged, wrongFlagged, wrongUnflagged, coarseWrong);
         System.out.printf(Locale.ROOT, "  re-check time %.1f ms per dart%n", refineNanos / 1e6 / Math.max(1, total));
+        screenFlicker();
         check(refinedOk >= coarseOk, "re-check must not lose correct darts overall");
         check(wrongUnflagged < coarseWrong, "fewer silent mistakes than the detector alone");
         check(refinedRan >= 0.9 * total, "re-check runs on at least 90% of darts");

@@ -47,7 +47,9 @@ Setup:
    close-up gets a yellow frame with "close – check" when the tip sits within ~1 mm of a wire. Tap the
    close-up to hide it.
    Screen: status chips (tablet link, calibration; **⚙** opens calibration), player and remaining score, the visit's 3 darts in big tiles with the total (`*` = corrected by the zoom, yellow frame = close to a wire), camera picture, then big buttons.
-   Buttons: **UNDO** (last dart), **MISS** (dart missed the board or bounced out – changes outside the scoring area, e.g. light flicker on the number ring, are ignored, so misses are entered with this button), **NEXT ▶** (submit
+   Buttons: **UNDO** (last dart), **MISS** (dart missed the board or bounced out – DartCam never scores a miss
+   by itself: changes outside the board, and changes the old picture explains (flicker, exposure, moiré
+   when testing on a screen, a tiny camera shake), are ignored as "not a dart"), **NEXT ▶** (submit
    when the takeout was not noticed). A wrong dart can also be fixed directly in DartCounter.
 
 Moving the phone or changing the zoom needs a new calibration.

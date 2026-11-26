@@ -71,6 +71,7 @@ import sk.kacurik.dartcam.core.AutoCalibrator;
 import sk.kacurik.dartcam.core.Board;
 import sk.kacurik.dartcam.core.BoardTracker;
 import sk.kacurik.dartcam.core.DartDetector;
+import sk.kacurik.dartcam.core.DartGate;
 import sk.kacurik.dartcam.core.Homography;
 import sk.kacurik.dartcam.core.TipRefiner;
 
@@ -106,7 +107,7 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
     // Touched only on the analysis thread.
     private DartDetector detector;
     // Full-resolution camera picture (sensor orientation) of the last still frame = "before" the next dart.
-    private Bitmap beforeFull;
+    private Bitmap beforeFull, beforeUpright;
     private int beforeRot;
     private volatile int frameW, frameH;
 
@@ -141,7 +142,8 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
 
     // ---- diagnostics: what Auto saw and decided (last few runs), for "Send debug" ----
     private static final class AutoRecord {
-        final Bitmap frame; final String trigger; final AutoCalibrator.Result r;
+        final Bitmap frame; final String trigger; final AutoCalibrator.Result r; // r: null for detections
+        Bitmap before; // detections: the picture before the dart
         final float gx, gy, zoom; final long time; final String outcome;
         AutoRecord(Bitmap frame, String trigger, AutoCalibrator.Result r, float gx, float gy, float zoom, String outcome) {
             this.frame = frame; this.trigger = trigger; this.r = r; this.gx = gx; this.gy = gy; this.zoom = zoom;
@@ -153,8 +155,13 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
     private volatile int lastFullRot;
 
     private void record(Bitmap frame, String trigger, AutoCalibrator.Result r, String outcome) {
+        record(frame, null, trigger, r, outcome);
+    }
+
+    private void record(Bitmap frame, Bitmap before, String trigger, AutoCalibrator.Result r, String outcome) {
         ZoomState zs = zoomState();
         AutoRecord rec = new AutoRecord(frame, trigger, r, gravX, gravY, zs == null ? Float.NaN : zs.getZoomRatio(), outcome);
+        rec.before = before;
         synchronized (records) {
             records.addLast(rec);
             while (records.size() > 12) records.removeFirst();
@@ -783,7 +790,17 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
                         z.putNextEntry(new ZipEntry(fn));
                         rec.frame.compress(Bitmap.CompressFormat.PNG, 100, z);
                         z.closeEntry();
+                        if (rec.before != null) {
+                            z.putNextEntry(new ZipEntry(fn.replace(".png", "-before.png")));
+                            rec.before.compress(Bitmap.CompressFormat.PNG, 100, z);
+                            z.closeEntry();
+                        }
                         AutoCalibrator.Result r = rec.r;
+                        if (r == null) { // a detected dart
+                            info.append(fn).append('\t').append(String.format(Locale.ROOT, "time=%tT ", rec.time))
+                                    .append(rec.outcome.replace(' ', '_')).append('\n');
+                            continue;
+                        }
                         info.append(fn).append('\t')
                                 .append(String.format(Locale.ROOT, "time=%tT gx=%.3f gy=%.3f zoom=%.3f size=%dx%d ok=%b",
                                         rec.time, rec.gx, rec.gy, rec.zoom, rec.frame.getWidth(), rec.frame.getHeight(), r.ok()))
@@ -945,7 +962,12 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
                 int c = px[i];
                 px[i] = (((c >> 16) & 0xff) * 77 + ((c >> 8) & 0xff) * 150 + (c & 0xff) * 29) >> 8;
             }
+            int ignoredBefore = detector.ignoredChanges;
             ev = detector.feed(px);
+            if (detector.ignoredChanges != ignoredBefore && nowIgnoredRecordOk()) {
+                record(upright, beforeUpright, "ignored", null, String.format(Locale.ROOT,
+                        "change ignored as not a new object (explained %.2f)", detector.lastExplained));
+            }
         }
         // Tracking: whenever nothing moves in front of the board (or it isn't calibrated yet).
         long nowMs = System.currentTimeMillis();
@@ -959,8 +981,29 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
         if (ev != null && ev.type == DartDetector.Type.DART && beforeFull != null) {
             zoom = zoomRecheck(ev, beforeFull, beforeRot, src, rot, 1f / scale, w, h);
         }
+        if (ev != null && ev.type == DartDetector.Type.DART) {
+            // Last check: not every change is a dart (flicker, a screen's moiré at the board edge…).
+            TipRefiner.Result zr = zoom == null ? null : zoom.result;
+            String why = DartGate.reject(ev.hit, zr);
+            String desc = String.format(Locale.ROOT, "tip %.1f,%.1f detector %s (explained %.2f), zoom: %s",
+                    ev.imgX, ev.imgY, ev.hit, detector.lastExplained, zr == null ? "none" : zr.toString());
+            if (why != null) {
+                detector.forgetLastDart(); // keep the new reference picture, don't count it
+                record(upright, beforeUpright, "dart", null, "dropped (" + why + ") " + desc);
+                ev = null;
+                zoom = null;
+                runOnUiThread(() -> {
+                    calNote = "Ignored a change at the board (not a dart).";
+                    calNoteUntil = System.currentTimeMillis() + 2500;
+                    hintText.postDelayed(this::updateHint, 2600);
+                    updateHint();
+                });
+            } else {
+                record(upright, beforeUpright, "dart", null, "scored " + desc);
+            }
+        }
         // The last still picture becomes the "before" of the next dart (also right after a dart).
-        if (!paused && detector.calibrated() && detector.idle()) { beforeFull = src; beforeRot = rot; }
+        if (!paused && detector.calibrated() && detector.idle()) { beforeFull = src; beforeRot = rot; beforeUpright = upright; }
         else if (paused) beforeFull = null;
         DartDetector.Event event = ev;
         ZoomShot z = zoom;
@@ -968,6 +1011,15 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
             boardView.setFrame(upright);
             if (event != null) onDetectorEvent(event, z);
         });
+    }
+
+    private long lastIgnoredRecordMs; // analysis thread
+
+    private boolean nowIgnoredRecordOk() {
+        long now = System.currentTimeMillis();
+        if (now - lastIgnoredRecordMs < 5000) return false;
+        lastIgnoredRecordMs = now;
+        return true;
     }
 
     /** Result of the zoom: the re-check (may be null / not ok) and the colour crop for the close-up. */
