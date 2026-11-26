@@ -37,7 +37,7 @@ Setup:
    the number is **re-checked in that zoom**; the hint says when the zoom corrected the number, and the
    close-up gets a yellow frame with "close – check" when the tip sits within ~1 mm of a wire. Tap the
    close-up to hide it.
-   Buttons: **Undo** (last dart), **Miss** (dart missed the board / bounced out), **Board clear ▶** (submit
+   Buttons: **Undo** (last dart), **Miss** (dart missed the board or bounced out – changes outside the scoring area, e.g. light flicker on the number ring, are ignored, so misses are entered with this button), **Board clear ▶** (submit
    when the takeout was not noticed). A wrong dart can also be fixed directly in DartCounter.
 
 Moving the phone or changing the zoom needs a new calibration.

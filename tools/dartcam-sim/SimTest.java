@@ -200,11 +200,59 @@ public class SimTest {
                     names[ci], foot == null ? Double.NaN : foot[0], foot == null ? Double.NaN : foot[1], cam[0], cam[1],
                     correct, total, wrongEnd, missed, takeouts, visits, spurious);
         }
+        phantomChecks();
         Collections.sort(allErr);
         System.out.printf("%nALL: %d/%d darts correct (%.0f%%); tip error median %.1f mm, 90%% %.1f mm%n",
                 allCorrect, allTotal, 100.0 * allCorrect / allTotal,
                 allErr.get(allErr.size() / 2), allErr.get((int) (allErr.size() * 0.9)));
         if (failures > 0) { System.out.println(failures + " CHECK FAILURES"); System.exit(1); }
+    }
+
+    /**
+     * No dart thrown, but patches of the number ring (175-225 mm) flicker in brightness (LED light,
+     * white digits): must give no darts. A dart with its tip just outside the double ring must still count.
+     */
+    static void phantomChecks() {
+        camera(0, 330, -380, 520, 0);
+        Homography b2i = boardToImg();
+        Homography i2b = b2i.inverse();
+        DartDetector det = new DartDetector(W, H, null);
+        det.setCalibration(i2b);
+        int[] empty = render(i2b);
+        double[] rr = new double[W * H], aa = new double[W * H];
+        for (int y = 0; y < H; y++) for (int x = 0; x < W; x++) {
+            double[] b = i2b.map(x + 0.5, y + 0.5);
+            rr[y * W + x] = Math.hypot(b[0], b[1]);
+            aa[y * W + x] = Math.toDegrees(Math.atan2(b[0], -b[1])) + 180;
+        }
+        for (int i = 0; i < 8; i++) det.feed(noisy(empty));
+        int phantoms = 0;
+        for (int burst = 0; burst < 12; burst++) {
+            // A few random 25-40° patches of the ring get brighter for a moment, then settle.
+            int[] fr = empty.clone();
+            double a0 = rnd.nextDouble() * 360, span = 25 + rnd.nextDouble() * 15, gain = 35 + rnd.nextInt(40);
+            for (int i = 0; i < fr.length; i++) {
+                double da = ((aa[i] - a0) % 360 + 360) % 360;
+                if (rr[i] > 175 && rr[i] < 225 && da < span) fr[i] = Math.min(255, fr[i] + (int) gain);
+            }
+            for (int i = 0; i < 2; i++) { DartDetector.Event e = det.feed(noisy(fr)); if (e != null && e.type == DartDetector.Type.DART) phantoms++; }
+            for (int i = 0; i < 10; i++) { DartDetector.Event e = det.feed(noisy(fr)); if (e != null && e.type == DartDetector.Type.DART) phantoms++; }
+            for (int i = 0; i < 10; i++) { DartDetector.Event e = det.feed(noisy(empty)); if (e != null && e.type == DartDetector.Type.DART) phantoms++; }
+        }
+        System.out.println("  flickering number ring, no darts thrown: " + phantoms + " phantom darts");
+        check(phantoms == 0, "no phantom darts from the number ring");
+
+        // A real dart just outside the double ring (tip 2 mm outside) is still a dart.
+        det.reset();
+        for (int i = 0; i < 8; i++) det.feed(noisy(empty));
+        int[] scene = empty.clone();
+        double[] p = Board.pointFor(19, Board.R_DOUBLE_OUT + 2);
+        paintDart(scene, p[0], p[1], 0, 0.15, 60);
+        DartDetector.Event ev = null;
+        det.feed(noisy(scene)); det.feed(noisy(scene));
+        for (int i = 0; i < 10; i++) { DartDetector.Event e = det.feed(noisy(scene)); if (ev == null) ev = e; }
+        System.out.println("  dart 2 mm outside the double: " + ev);
+        check(ev != null && ev.type == DartDetector.Type.DART, "dart just outside the double ring still reported");
     }
 
     static int failures;

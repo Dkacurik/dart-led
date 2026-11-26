@@ -44,7 +44,8 @@ public final class DartDetector {
         public double emptyFraction = 0.0010; // frame "matches the empty board" below this share
         public double occludedFraction = 0.12; // more than this changed = someone in front of the board
         public double maskRadiusMm = 260;     // area watched (board + surround, flights stick out)
-        public int recoverFrames = 45;        // still frames after a big unexplained change before adopting it (~2 s)
+        public int recoverFrames = 45;
+        public double outsideMarginMm = 5;    // "darts" with the tip further outside the double ring are ignored        // still frames after a big unexplained change before adopting it (~2 s)
     }
 
     private final int w, h;
@@ -181,6 +182,12 @@ public final class DartDetector {
         }
         double[] tip = findTip(blob);
         double[] b = imgToBoard.map(tip[0], tip[1]);
+        if (Math.hypot(b[0], b[1]) > Board.R_DOUBLE_OUT + p.outsideMarginMm) {
+            // Not a dart in the board: light flicker on the number ring, a shadow, something on the wall.
+            // Take the change into the reference; real misses are entered with the Miss button.
+            refVisit = cur;
+            return null;
+        }
         Hit hit = Board.score(b[0], b[1]);
         dartsInVisit++;
         refVisit = cur;
