@@ -19,6 +19,9 @@ public class AutoCalPhoto {
         if (args.length < 2) { System.out.println("usage: AutoCalPhoto in.jpg out.png [rollDegrees]"); System.exit(2); }
         BufferedImage src = ImageIO.read(new File(args[0]));
         if (src == null) { System.out.println("cannot read " + args[0]); System.exit(2); }
+        if (src.getWidth() > src.getHeight())
+            System.out.println("note: picture is landscape (" + src.getWidth() + "x" + src.getHeight() + "). Phone JPGs often store a portrait"
+                    + " photo sideways with an EXIF rotation tag that is ignored here: pass rollDegrees 90 or 270 if 20 is not at the top.");
         double scale = 640.0 / Math.max(src.getWidth(), src.getHeight());
         int w = (int) Math.round(src.getWidth() * scale), h = (int) Math.round(src.getHeight() * scale);
         BufferedImage img = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);

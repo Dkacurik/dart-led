@@ -196,9 +196,9 @@ public final class AutoCalibrator {
             rms = st[0]; inl = (int) st[1];
         }
         double pm = patternMatch(cls, w, h, H);
-        if (inl < 40) return new Result(H, rms, inl, pm, "board not found reliably (" + inl + " points)");
+        if (inl < 150) return new Result(H, rms, inl, pm, "board not found reliably (" + inl + " points)");
         if (rms > 2.0) return new Result(H, rms, inl, pm, String.format(java.util.Locale.ROOT, "board fit too loose (%.1f px)", rms));
-        if (pm < 0.75) return new Result(H, rms, inl, pm, String.format(java.util.Locale.ROOT, "board pattern unclear (%.0f%%)", pm * 100));
+        if (pm < 0.9) return new Result(H, rms, inl, pm, String.format(java.util.Locale.ROOT, "board pattern unclear (%.0f%%)", pm * 100));
         return new Result(H, rms, inl, pm, null);
     }
 

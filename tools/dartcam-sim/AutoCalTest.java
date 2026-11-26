@@ -125,6 +125,9 @@ public class AutoCalTest {
                 long t0 = System.nanoTime();
                 // What the phone's accelerometer would say: world "up" (board -y) in camera axes.
                 double[] upCam = {-SimTest.R[0][1], -SimTest.R[1][1]};
+                // Simulated sensor / board-hanging error (degrees), set with -DupErr=8.
+                double ue = Math.toRadians(Double.parseDouble(System.getProperty("upErr", "0")) * (rnd.nextBoolean() ? 1 : -1));
+                upCam = new double[]{upCam[0] * Math.cos(ue) - upCam[1] * Math.sin(ue), upCam[0] * Math.sin(ue) + upCam[1] * Math.cos(ue)};
                 AutoCalibrator.Result res = AutoCalibrator.find(img, W, H, upCam[0], upCam[1]);
                 long ms = (System.nanoTime() - t0) / 1_000_000;
                 String line = String.format(Locale.ROOT, "%-16s roll %+3.0f° light %.2f: %s (%d ms)", names[ci], roll, dim, res, ms);
