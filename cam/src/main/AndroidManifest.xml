@@ -13,6 +13,7 @@
         android:icon="@drawable/ic_launcher"
         android:roundIcon="@drawable/ic_launcher"
         android:theme="@android:style/Theme.DeviceDefault.NoActionBar"
+        android:largeHeap="true"
         android:allowBackup="false">
 
         <activity

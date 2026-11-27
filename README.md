@@ -68,6 +68,11 @@ Setup:
    at the board: where the picture changed it looks like the empty board again.
    Buttons: **UNDO** (last dart), **MISS** (a bounce-out or a dart the camera didn't see), **NEXT ▶** (submit
    when the takeout was not noticed). A wrong dart can also be fixed directly in DartCounter.
+   **Camera resolution:** DartCam starts with the highest 4:3 resolution the phone offers (up to
+   4000×3000) and steps down (3264×2448 → 2560×1920 → 1920×1440 → 1280×960) when a frame takes more than
+   ~80 ms to process; the step is remembered (**Max resolution** on the calibration screen tries the top
+   again). The calibration screen shows the resolution, fps and time per frame. Detection runs on a
+   640 px copy; the close-up re-check after each dart uses the full resolution.
    **Send debug** (calibration screen) zips the last detections: pictures before/after, the zoom window,
    the calibration and phone tilt in force.
 

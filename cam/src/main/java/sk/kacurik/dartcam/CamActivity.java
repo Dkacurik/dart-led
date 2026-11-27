@@ -188,7 +188,7 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
 
     /** Message from the last Auto run, shown while calibrating; null = normal hints. */
     private String autoMsg;
-    private boolean autoRunning;
+    private volatile boolean autoRunning;
 
     private SensorManager sensors;
     private final SensorEventListener gravityListener = new SensorEventListener() {
@@ -353,6 +353,10 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
             prefs.edit().putBoolean("autoKeep", on).apply();
         });
         calBar.addView(keep);
+        streamText = new TextView(this);
+        streamText.setTextColor(Color.LTGRAY);
+        streamText.setTextSize(12);
+        calBar.addView(streamText);
         LinearLayout cr = row(calBar);
         button(cr, "Auto", v -> requestAutoCalibration());
         button(cr, "Reset points", v -> { autoMsg = null; boardView.clearCalibration(); });
@@ -360,6 +364,11 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
         LinearLayout cr2 = row(calBar);
         button(cr2, "Tablet address", v -> askTabletAddress());
         button(cr2, "Send debug", v -> sendDebug());
+        button(cr2, "Max resolution", v -> {
+            prefs.edit().putInt("streamLevel", 0).apply();
+            streamLevel = 0;
+            startCamera();
+        });
 
         root.addView(bottom);
         setContentView(root);
@@ -823,6 +832,7 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
                 StringBuilder info = new StringBuilder();
                 info.append("device=").append(Build.MANUFACTURER).append(' ').append(Build.MODEL).append(" sdk=").append(Build.VERSION.SDK_INT).append('\n');
                 if (full != null) info.append("stream=").append(full.getWidth()).append('x').append(full.getHeight()).append(" rotation=").append(fullRot).append('\n');
+                info.append("streamLevel=").append(streamLevel).append(' ').append(streamInfo).append('\n');
                 if (zs != null) info.append(String.format(Locale.ROOT, "zoom=%.3f min=%.3f max=%.3f linear=%.3f%n",
                         zs.getZoomRatio(), zs.getMinZoomRatio(), zs.getMaxZoomRatio(), zs.getLinearZoom()));
                 info.append(String.format(Locale.ROOT, "gravity=%.3f,%.3f keepCalibrated=%b%n", gravX, gravY, keepCalibrated));
@@ -926,11 +936,14 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
         f.addListener(() -> {
             try {
                 ProcessCameraProvider provider = f.get();
+                streamLevel = Math.max(0, Math.min(STREAM_LADDER.length - 1, prefs.getInt("streamLevel", 0)));
+                Size want = STREAM_LADDER[streamLevel];
                 ResolutionSelector rs = new ResolutionSelector.Builder()
                         .setAspectRatioStrategy(AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY)
-                        .setResolutionStrategy(new ResolutionStrategy(new Size(1280, 960),
-                                ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER))
+                        .setResolutionStrategy(new ResolutionStrategy(want,
+                                ResolutionStrategy.FALLBACK_RULE_CLOSEST_LOWER_THEN_HIGHER))
                         .build();
+                resetStreamStats();
                 ImageAnalysis analysis = new ImageAnalysis.Builder()
                         .setResolutionSelector(rs)
                         .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
@@ -949,8 +962,61 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
         }, this::runOnUiThread);
     }
 
-    /** Runs on the analysis thread for every camera frame. */
+    // ---- stream resolution: as high as the phone keeps up with ----
+    /** 4:3 sizes tried from the top; the phone gives the closest it has at or below. */
+    private static final Size[] STREAM_LADDER = {new Size(4000, 3000), new Size(3264, 2448),
+            new Size(2560, 1920), new Size(1920, 1440), new Size(1280, 960)};
+    private static final double SLOW_FRAME_MS = 80;   // slower than this on average = step down
+    private volatile int streamLevel;
+    private TextView streamText;
+    private long statsStart, statsFrames, statsBusyNs, bindTime;
+    private volatile String streamInfo = "";
+
+    private void resetStreamStats() {
+        bindTime = System.currentTimeMillis();
+        statsStart = 0; statsFrames = 0; statsBusyNs = 0;
+    }
+
+    /** Runs on the analysis thread for every camera frame: process it and keep track of the cost. */
     private void analyze(ImageProxy image) {
+        int iw = image.getWidth(), ih = image.getHeight();
+        long t0 = System.nanoTime();
+        try {
+            analyzeFrame(image);
+        } catch (OutOfMemoryError oom) {
+            // Frames this big don't fit in memory: step down right away.
+            beforeFull = null; lastFull = null;
+            stepDown();
+            return;
+        }
+        long now = System.currentTimeMillis();
+        if (now - bindTime < 3000) return;                 // camera still starting
+        if (autoRunning || autoCalRequested) { statsStart = 0; return; }   // Auto is slow on purpose
+        if (statsStart == 0) { statsStart = now; statsFrames = 0; statsBusyNs = 0; }
+        statsFrames++;
+        statsBusyNs += System.nanoTime() - t0;
+        long span = now - statsStart;
+        if (span < 4000) return;
+        double fps = statsFrames * 1000.0 / span, ms = statsBusyNs / 1e6 / statsFrames;
+        streamInfo = String.format(Locale.ROOT, "Camera %dx%d · %.0f fps · %.0f ms per frame%s", Math.max(iw, ih), Math.min(iw, ih),
+                fps, ms, streamLevel > 0 ? " (lowered to keep up)" : "");
+        statsStart = now; statsFrames = 0; statsBusyNs = 0;
+        runOnUiThread(() -> { if (streamText != null) streamText.setText(streamInfo); });
+        boolean busy = detector != null && detector.dartsInVisit() > 0;
+        if (ms > SLOW_FRAME_MS && !busy) stepDown();       // too slow to follow the darts
+    }
+
+    /** One resolution step down, remembered for the next start. */
+    private void stepDown() {
+        if (streamLevel >= STREAM_LADDER.length - 1) return;
+        int next = streamLevel + 1;
+        prefs.edit().putInt("streamLevel", next).apply();
+        streamLevel = next;
+        bindTime = Long.MAX_VALUE / 2;                     // no more measuring until rebound
+        runOnUiThread(this::startCamera);
+    }
+
+    private void analyzeFrame(ImageProxy image) {
         Bitmap upright, src;
         int rot;
         float scale;
