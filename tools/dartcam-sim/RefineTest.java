@@ -150,6 +150,7 @@ public class RefineTest {
         String[] names = {"below-left", "below", "right side", "above", "below-right rotated"};
         int total = 0, coarseOk = 0, refinedOk = 0, refinedRan = 0, changedToRight = 0, changedToWrong = 0;
         int wrongFlagged = 0, wrongUnflagged = 0, coarseWrong = 0, flagged = 0;
+        int dcTotal = 0, dcMeasured = 0, dcOk = 0, dcFixed = 0, dcBroke = 0;
         List<Double> cErr = new ArrayList<>(), rErr = new ArrayList<>();
         long refineNanos = 0;
         for (int ci = 0; ci < cams.length; ci++) {
@@ -172,6 +173,7 @@ public class RefineTest {
                 int[] scene = emptyFull.clone();
                 int[] sceneDown = emptyDown;
                 for (int i = 0; i < 6; i++) det.feed(noisy(sceneDown, 3));
+                List<Object[]> visitShots = new ArrayList<>();   // per dart: before, after, window, ev, first result, truth
                 for (int d = 0; d < 3; d++) {
                     int[] beforeFull = noisy(scene, 3);
                     double r = Math.sqrt(rnd.nextDouble()) * 168, a = rnd.nextDouble() * 2 * Math.PI;
@@ -214,6 +216,7 @@ public class RefineTest {
                         rErr.add(Math.hypot(rr.boardX - bx, rr.boardY - by));
                         if (rr.changed) { if (rr.hit.equals(expected)) changedToRight++; else changedToWrong++; }
                     } else rErr.add(Math.hypot(ev.boardX - bx, ev.boardY - by));
+                    visitShots.add(new Object[]{beforeFull, afterFull, new int[]{cx0, cy0, cw, ch}, ev, rr, expected, finalHit});
                     if (close) flagged++;
                     if (finalHit.equals(expected)) { refinedOk++; camRefined++; }
                     else if (close) wrongFlagged++;
@@ -223,6 +226,28 @@ public class RefineTest {
                                 expected, bx, by, Board.wireDistance(bx, by), ev.hit, Math.hypot(ev.boardX - bx, ev.boardY - by),
                                 rr, rr.ok ? Math.hypot(rr.boardX - bx, rr.boardY - by) : -1, rr.boardX - bx, rr.boardY - by);
                     }
+                }
+                // Double check of every dart on the last still picture (all darts in), later darts masked.
+                int[] finalFull = noisy(scene, 3);
+                for (int k = 0; k < visitShots.size(); k++) {
+                    Object[] sh = visitShots.get(k);
+                    int[] wv = (int[]) sh[2];
+                    DartDetector.Event e0 = (DartDetector.Event) sh[3];
+                    TipRefiner.Result first = (TipRefiner.Result) sh[4];
+                    Hit truth = (Hit) sh[5], entered = (Hit) sh[6];
+                    int[] settled = k < visitShots.size() - 1 ? crop((int[]) sh[1], wv[0], wv[1], wv[2], wv[3]) : null;
+                    double cx = first.ok ? first.tipX : e0.imgX, cy = first.ok ? first.tipY : e0.imgY;
+                    TipRefiner.Result second = TipRefiner.refine(crop((int[]) sh[0], wv[0], wv[1], wv[2], wv[3]),
+                            crop(finalFull, wv[0], wv[1], wv[2], wv[3]), settled, wv[2], wv[3], (double) wv[0] / S, (double) wv[1] / S, S,
+                            cx, cy, entered, det.imgToBoard(), det.cameraFoot(), 28);
+                    DoubleCheck.Verdict vd = DoubleCheck.decide(entered, first, second, e0.boardX, e0.boardY);
+                    dcTotal++;
+                    if (vd.measured) dcMeasured++;
+                    if (vd.hit.equals(truth)) dcOk++;
+                    if (!vd.hit.equals(entered)) { if (vd.hit.equals(truth)) dcFixed++; else dcBroke++; }
+                    if (Boolean.getBoolean("dc") && (!vd.hit.equals(entered) || !vd.hit.equals(truth)))
+                        System.out.printf(Locale.ROOT, "  DC dart %d/%d truth %s entered %s -> %s | first %s | second %s | %s%n",
+                                k + 1, visitShots.size(), truth, entered, vd.hit, first, second, vd.note);
                 }
                 // Takeout.
                 int[] hand = scene.clone();
@@ -243,6 +268,11 @@ public class RefineTest {
         System.out.printf(Locale.ROOT, "  flagged 'close to wire': %d; wrong after re-check: %d flagged, %d NOT flagged (detector alone: %d wrong)%n",
                 flagged, wrongFlagged, wrongUnflagged, coarseWrong);
         System.out.printf(Locale.ROOT, "  re-check time %.1f ms per dart%n", refineNanos / 1e6 / Math.max(1, total));
+        System.out.printf(Locale.ROOT, "%nDOUBLE CHECK (every dart again on the last picture, later darts masked): %d/%d correct (%.0f%%),"
+                        + " measured %d; corrected %d to the right number, %d to a wrong one%n",
+                dcOk, dcTotal, 100.0 * dcOk / Math.max(1, dcTotal), dcMeasured, dcFixed, dcBroke);
+        check(dcOk >= refinedOk, "double check must not lose correct darts overall");
+        check(dcMeasured >= 0.85 * dcTotal, "double check measures at least 85% of darts");
         screenFlicker();
         check(refinedOk >= coarseOk, "re-check must not lose correct darts overall");
         check(wrongUnflagged < coarseWrong, "fewer silent mistakes than the detector alone");

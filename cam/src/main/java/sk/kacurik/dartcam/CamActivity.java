@@ -72,6 +72,8 @@ import sk.kacurik.dartcam.core.Board;
 import sk.kacurik.dartcam.core.BoardTracker;
 import sk.kacurik.dartcam.core.DartDetector;
 import sk.kacurik.dartcam.core.DartGate;
+import sk.kacurik.dartcam.core.DoubleCheck;
+import sk.kacurik.dartcam.core.Hit;
 import sk.kacurik.dartcam.core.Homography;
 import sk.kacurik.dartcam.core.TipRefiner;
 
@@ -600,6 +602,8 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
         autoRunning = false; // a zoom round still waiting ends here
         visit.clear();
         visitFlags.clear();
+        visitSubmitted = false;
+        detectorTask = this::clearShots;
         boardView.clearMarks();
         showMode();
     }
@@ -1125,17 +1129,97 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
             } else {
                 AutoRecord sr = record(upright, beforeUpright, "dart", null, "scored " + desc);
                 if (zoom != null) sr.crop = zoom.crop;
+                int idx = ev.dartInVisit - 1;
+                if (idx >= 0 && idx < 3) {
+                    Shot sh = new Shot();
+                    sh.ev = ev;
+                    sh.zoom = zoom;
+                    sh.sent = zr != null && zr.ok ? zr.hit : ev.hit;
+                    shots[idx] = sh;
+                }
+                lastDartMs = System.currentTimeMillis();
             }
         }
+        // The visit's double check: after the 3rd dart once the picture is still, or at the takeout.
+        List<DoubleCheck.Verdict> check = null;
+        boolean submitNow = false;
+        if (ev != null && ev.type == DartDetector.Type.TAKEOUT) {
+            if (!visitSubmitted) check = doubleCheck(visitStill, visitStillRot, w, h);
+            clearShots();
+        } else if (!visitSubmitted && !paused && detector.dartsInVisit() >= 3 && detector.idle()
+                && System.currentTimeMillis() - lastDartMs > 1200 && visitStill != null) {
+            check = doubleCheck(visitStill, visitStillRot, w, h);
+            submitNow = true;
+            visitSubmitted = true;               // (analysis thread) no second submit for this visit
+        }
         // The last still picture becomes the "before" of the next dart (also right after a dart).
-        if (!paused && detector.calibrated() && detector.idle()) { beforeFull = src; beforeRot = rot; beforeUpright = upright; }
+        if (!paused && detector.calibrated() && detector.idle()) {
+            beforeFull = src; beforeRot = rot; beforeUpright = upright;
+            if (detector.dartsInVisit() > 0) { visitStill = src; visitStillRot = rot; }
+        }
         else if (paused) beforeFull = null;
         DartDetector.Event event = ev;
         ZoomShot z = zoom;
+        List<DoubleCheck.Verdict> chk = check;
+        boolean submit = submitNow;
         runOnUiThread(() -> {
             boardView.setFrame(upright);
-            if (event != null) onDetectorEvent(event, z);
+            if (submit) applyDoubleCheck(chk, true);
+            if (event != null) onDetectorEvent(event, z, chk);
         });
+    }
+
+    // ---- the visit's double check (analysis thread) ----
+    private static final class Shot {
+        DartDetector.Event ev; ZoomShot zoom; Hit sent;
+    }
+    private final Shot[] shots = new Shot[3];
+    private Bitmap visitStill;        // last still full-res picture with darts in the board
+    private int visitStillRot;
+    private long lastDartMs;
+    private volatile boolean visitSubmitted;
+
+    private void clearShots() {
+        for (int i = 0; i < 3; i++) shots[i] = null;
+        visitStill = null;
+    }
+
+    /**
+     * Every dart of the visit measured again on the last still picture (all darts in): the window of
+     * each dart is cut from it and compared with the picture before that dart; changes made by later
+     * darts are masked with the picture right after it. One verdict per dart (null = nothing to check:
+     * entered by hand or no zoom pictures).
+     */
+    private List<DoubleCheck.Verdict> doubleCheck(Bitmap fin, int finRot, int aw, int ah) {
+        List<DoubleCheck.Verdict> out = new ArrayList<>();
+        Bitmap f = null;
+        int last = -1;
+        for (int i = 0; i < 3; i++) if (shots[i] != null) last = i;
+        for (int i = 0; i < 3; i++) {
+            Shot sh = shots[i];
+            DoubleCheck.Verdict vd = null;
+            try {
+                if (sh != null && fin != null && sh.zoom != null && sh.zoom.gBefore != null) {
+                    if (f == null) f = uprightFull(fin, finRot);
+                    ZoomShot zs = sh.zoom;
+                    TipRefiner.Result second = TipRefiner.Result.fail("picture size changed");
+                    if (f.getWidth() == zs.fullW && f.getHeight() == zs.fullH) {
+                        int[] gf = grayCrop(f, zs.cx0, zs.cy0, zs.cw, zs.ch);
+                        TipRefiner.Result first = zs.result;
+                        double cx = first != null && first.ok ? first.tipX : sh.ev.imgX;
+                        double cy = first != null && first.ok ? first.tipY : sh.ev.imgY;
+                        second = TipRefiner.refine(zs.gBefore, gf, i < last ? zs.gAfter : null, zs.cw, zs.ch,
+                                zs.x0, zs.y0, zs.scale, cx, cy, sh.sent, detector.imgToBoard(), detector.cameraFoot(), 28);
+                    }
+                    vd = DoubleCheck.decide(sh.sent, zs.result, second, sh.ev.boardX, sh.ev.boardY);
+                }
+            } catch (Exception ignored) { }
+            out.add(vd);
+        }
+        StringBuilder note = new StringBuilder("double check:");
+        for (int i = 0; i < out.size(); i++) if (out.get(i) != null) note.append(" #").append(i + 1).append(' ').append(out.get(i).hit).append(" (").append(out.get(i).note).append(')');
+        record(lastUpright, null, "check", null, note.toString());
+        return out;
     }
 
     private long lastIgnoredRecordMs; // analysis thread
@@ -1150,6 +1234,8 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
     /** Result of the zoom: the re-check (may be null / not ok) and the colour crop for the close-up. */
     private static final class ZoomShot {
         final TipRefiner.Result result; final Bitmap crop; final float x0, y0, scale;
+        int[] gBefore, gAfter;      // grey crops before/after the dart (for the double check)
+        int cx0, cy0, cw, ch, fullW, fullH;  // crop in the upright full-res picture
         ZoomShot(TipRefiner.Result r, Bitmap crop, float x0, float y0, float scale) {
             this.result = r; this.crop = crop; this.x0 = x0; this.y0 = y0; this.scale = scale;
         }
@@ -1175,7 +1261,10 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
             int[] gb = grayCrop(b, x0, y0, cw, ch), ga = grayCrop(a, x0, y0, cw, ch);
             TipRefiner.Result r = TipRefiner.refine(gb, ga, cw, ch, x0 / full, y0 / full, full,
                     ev.imgX, ev.imgY, ev.hit, detector.imgToBoard(), detector.cameraFoot(), 28);
-            return new ZoomShot(r, Bitmap.createBitmap(a, x0, y0, cw, ch), x0 / full, y0 / full, full);
+            ZoomShot zs = new ZoomShot(r, Bitmap.createBitmap(a, x0, y0, cw, ch), x0 / full, y0 / full, full);
+            zs.gBefore = gb; zs.gAfter = ga;
+            zs.cx0 = x0; zs.cy0 = y0; zs.cw = cw; zs.ch = ch; zs.fullW = a.getWidth(); zs.fullH = a.getHeight();
+            return zs;
         } catch (Exception e) {
             return null;
         }
@@ -1200,7 +1289,49 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
 
     // ---------------- game flow ----------------
 
-    private void onDetectorEvent(DartDetector.Event e, ZoomShot shot) {
+    /**
+     * UI thread: apply the double check – correct entered darts on the tablet (take them back from the
+     * first wrong one and enter them again), tell what was checked, and submit if asked.
+     */
+    private void applyDoubleCheck(List<DoubleCheck.Verdict> check, boolean submit) {
+        if (check != null && !visit.isEmpty()) {
+            int firstWrong = -1;
+            List<String> fixed = new ArrayList<>(visit);
+            StringBuilder msg = new StringBuilder();
+            int checked = 0;
+            for (int i = 0; i < check.size() && i < visit.size(); i++) {
+                DoubleCheck.Verdict vd = check.get(i);
+                if (vd == null) continue;
+                if (!vd.measured) { msg.append(" Dart ").append(i + 1).append(": uncertain, please check."); continue; }
+                checked++;
+                String l = vd.hit.label();
+                if (!l.equals(visit.get(i))) {
+                    msg.append(" Dart ").append(i + 1).append(": ").append(visit.get(i)).append(" → ").append(l).append('.');
+                    fixed.set(i, l);
+                    if (firstWrong < 0) firstWrong = i;
+                }
+            }
+            if (firstWrong >= 0) {
+                StringBuilder redo = new StringBuilder("REDO");
+                for (int i = firstWrong; i < fixed.size(); i++) redo.append(' ').append(fixed.get(i));
+                link.send(redo.toString());
+                for (int i = 0; i < fixed.size(); i++) {
+                    if (i < visitFlags.size() && !fixed.get(i).equals(visit.get(i))) visitFlags.get(i)[0] = true;  // "*" on the tile
+                    visit.set(i, fixed.get(i));
+                }
+                buzz(60);
+            }
+            zoomNote = (firstWrong >= 0 ? "Double check corrected:" : "Double check: " + checked + (checked == 1 ? " dart" : " darts") + " OK ✓")
+                    + msg;
+        }
+        if (submit) {
+            link.send("SUBMIT");
+            visitSubmitted = true;
+        }
+        updateHint();
+    }
+
+    private void onDetectorEvent(DartDetector.Event e, ZoomShot shot, List<DoubleCheck.Verdict> check) {
         TipRefiner.Result zoom = shot == null ? null : shot.result;
         if (e.type == DartDetector.Type.DART) {
             String label = e.hit.label();
@@ -1223,8 +1354,10 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
         } else {
             zoomNote = null;
             boardView.setZoom(null);
-            // Darts pulled out: the visit is over.
-            link.send("SUBMIT");
+            // Darts pulled out: the visit is over (submitted after the double check unless that
+            // already happened after the 3rd dart).
+            if (!visitSubmitted) applyDoubleCheck(check, true);
+            visitSubmitted = false;
             visit.clear();
         visitFlags.clear();
             boardView.clearMarks();
@@ -1235,13 +1368,23 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
 
     private void undo() {
         if (visit.isEmpty()) return;
+        if (visitSubmitted) {
+            zoomNote = "The visit was already submitted after the double check – fix it in DartCounter.";
+            updateHint();
+            return;
+        }
         visit.remove(visit.size() - 1);
         if (!visitFlags.isEmpty()) visitFlags.remove(visitFlags.size() - 1);
         boardView.removeLastMark();
         link.send("UNDO");
         zoomNote = null;
         boardView.setZoom(null);
-        detectorTask = () -> { if (detector != null) detector.forgetLastDart(); };
+        detectorTask = () -> {
+            if (detector == null) return;
+            detector.forgetLastDart();
+            int k = detector.dartsInVisit();
+            if (k < 3) shots[k] = null;
+        };
         updateHint();
     }
 
@@ -1250,19 +1393,24 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
         visit.add("MISS");
         visitFlags.add(new boolean[2]);
         link.send("DART MISS");
-        detectorTask = () -> { if (detector != null) detector.addManualDart(); };
+        detectorTask = () -> {
+            if (detector == null) return;
+            detector.addManualDart();
+            lastDartMs = System.currentTimeMillis();
+        };
         updateHint();
     }
 
     /** The darts are out but the camera did not notice: finish the visit by hand. */
     private void boardClear() {
-        link.send("SUBMIT");
+        if (!visitSubmitted) link.send("SUBMIT");
+        visitSubmitted = false;
         zoomNote = null;
         boardView.setZoom(null);
         visit.clear();
         visitFlags.clear();
         boardView.clearMarks();
-        detectorTask = () -> { if (detector != null) detector.markEmpty(); };
+        detectorTask = () -> { if (detector != null) detector.markEmpty(); clearShots(); };
         updateHint();
     }
 

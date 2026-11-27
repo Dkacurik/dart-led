@@ -54,7 +54,16 @@ Setup:
    close-up). Moving the zoom slider by hand switches this off until the next **Auto**.
    Switch tracking off with **Track the board all the time** on the calibration screen (e.g. for a board Auto
    can't read).
-5. Play. Each dart is shown on the phone and entered in DartCounter; pulling the darts out submits the visit.
+5. Play. Each dart is shown on the phone and entered in DartCounter. **The visit is submitted by itself**
+   once the 3rd dart is in and the picture has been still for ~1 s (or when the darts are pulled out
+   earlier, e.g. after a bust). Before that every dart gets a **double check**
+   (`core/DoubleCheck.java`): its window is cut again from the last still picture (all darts in, at
+   full resolution, later darts masked with the picture right after the dart) and measured again; the
+   number is taken from the mean of both measurements. If it differs from what was entered, the phone
+   sends `REDO <darts from the first wrong one>`, Dart LED takes those darts back with DartCounter's undo
+   and enters them again, then submits. If the two measurements don't agree (>3 mm apart) the entered
+   number is kept and the hint asks to check that dart. `RefineTest` measures it: the double check never
+   made a correct dart wrong in the simulation.
    After each dart a **close-up** of the dart appears (full camera resolution, with the wires drawn in) and
    the number is **re-checked in that zoom**; the hint says when the zoom corrected the number, and the
    close-up gets a yellow frame with "close – check" when the tip sits within ~1 mm of a wire. Tap the

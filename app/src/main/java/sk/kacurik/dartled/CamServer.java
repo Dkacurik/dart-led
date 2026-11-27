@@ -128,6 +128,17 @@ public final class CamServer {
             typer.submit(result -> write(reply, result));
         } else if (upper.equals("UNDO")) {
             typer.undo(result -> write(reply, result));
+        } else if (upper.startsWith("REDO ")) {
+            // The phone's double check corrected a dart: take back the darts from that one on and
+            // enter them again ("REDO S20 T5" = undo 2 darts, enter S20, enter T5).
+            String[] labels = upper.substring(5).trim().split("\\s+");
+            DartTyper.log("<- " + cmd + " (double check correction)");
+            for (int i = 0; i < labels.length; i++)
+                typer.undo(result -> { if (!result.startsWith("OK")) write(reply, result); });
+            for (int i = 0; i < labels.length; i++) {
+                final boolean last = i == labels.length - 1;
+                typer.enterDart(labels[i], result -> { if (last || !result.startsWith("OK")) write(reply, result); });
+            }
         } else {
             write(reply, "ERR unknown command " + cmd);
         }

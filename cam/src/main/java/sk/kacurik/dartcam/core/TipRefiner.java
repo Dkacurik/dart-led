@@ -42,7 +42,7 @@ public final class TipRefiner {
             this.wireMm = wireMm; this.closeCall = close; this.changed = changed; this.note = note;
         }
 
-        static Result fail(String why) { return new Result(false, 0, 0, 0, 0, null, Double.NaN, false, false, why); }
+        public static Result fail(String why) { return new Result(false, 0, 0, 0, 0, null, Double.NaN, false, false, why); }
 
         @Override public String toString() {
             return ok ? hit + (changed ? " (changed)" : "") + String.format(java.util.Locale.ROOT, " wire %.1f mm", wireMm) + (closeCall ? " CLOSE" : "")
@@ -77,8 +77,20 @@ public final class TipRefiner {
     public static Result refine(int[] before, int[] after, int cw, int ch, double x0, double y0, double scale,
                                 double coarseX, double coarseY, Hit coarseHit,
                                 Homography imgToBoard, double[] cameraFoot, int diffThreshold) {
+        return refine(before, after, null, cw, ch, x0, y0, scale, coarseX, coarseY, coarseHit, imgToBoard, cameraFoot, diffThreshold);
+    }
+
+    /**
+     * Double check at the end of a visit: "after" is the last still picture (all darts in), "settled"
+     * the picture right after this dart (null for the last dart). Pixels where after and settled
+     * differ were changed by later darts and are left out, so only this dart is measured again.
+     */
+    public static Result refine(int[] before, int[] after, int[] settled, int cw, int ch, double x0, double y0, double scale,
+                                double coarseX, double coarseY, Hit coarseHit,
+                                Homography imgToBoard, double[] cameraFoot, int diffThreshold) {
         if (before == null || after == null || before.length != cw * ch || after.length != cw * ch || cw < 8 || ch < 8)
             return Result.fail("no crop");
+        if (settled != null && settled.length != cw * ch) settled = null;
         // 1. Changed pixels; a little smoothing against sensor noise (3x3 mean of the difference).
         boolean[] changed = new boolean[cw * ch];
         int n = 0;
@@ -90,7 +102,17 @@ public final class TipRefiner {
                         int j = (y + dy) * cw + x + dx;
                         s += Math.abs(after[j] - before[j]);
                     }
-                if (s > 9 * diffThreshold * 0.75) { changed[y * cw + x] = true; n++; }
+                if (s <= 9 * diffThreshold * 0.75) continue;
+                if (settled != null) {
+                    int l = 0;
+                    for (int dy = -1; dy <= 1; dy++)
+                        for (int dx = -1; dx <= 1; dx++) {
+                            int j = (y + dy) * cw + x + dx;
+                            l += Math.abs(after[j] - settled[j]);
+                        }
+                    if (l > 9 * diffThreshold * 0.75) continue;      // a later dart, not this one
+                }
+                changed[y * cw + x] = true; n++;
             }
         if (n < 10) return Result.fail("no change in the zoom");
         if (n > 0.6 * cw * ch) return Result.fail("whole zoom changed");
