@@ -46,9 +46,10 @@ public final class DartDetector {
         public double maskRadiusMm = 260;     // area watched (board + surround, flights stick out)
         public int recoverFrames = 45;        // still frames after a big unexplained change before adopting it (~2 s)
         public double missRadiusMm = 250;     // tips up to here (number ring, board edge, surround) = MISS; further out ignored
-        public double explainedReject = 0.88; // change explained this well by the old picture = not a dart
+        public double explainedReject = 0.94; // change explained this well by the old picture = not a dart
         public double vanishedShare = 0.85;
         public double maxSpreadMm = 60;
+        public boolean blurTolerant = true;   // a refocus / 2 px shift (3x3 means agree) is explained too
         public double minFill = 0.15;         // a dart fills its extent (length × width); outlines from focus/shake don't       // changed pixels spread wider than this (std. dev. along the main axis) = not one dart   // changed area explained this well by the clean board = a dart was pulled out
     }
 
@@ -168,13 +169,14 @@ public final class DartDetector {
             // permanently): accept the new picture instead of waiting forever.
             blocked = false;
             refVisit = cur.clone();
-            if (dartsInVisit == 0) refEmpty = cur.clone();
+            if (dartsInVisit == 0) { refEmpty = cur.clone(); refClean = cur.clone(); }
             return null;
         }
         if (!moving) {
             // Nothing happening: let the references follow slow light changes.
             if (countDiff(cur, refVisit, null) < p.emptyFraction * maskCount) blend(refVisit, cur);
             if (dartsInVisit == 0 && countDiff(cur, refEmpty, null) < p.emptyFraction * maskCount) blend(refEmpty, cur);
+            if (dartsInVisit == 0 && refClean != null && countDiff(cur, refClean, null) < p.emptyFraction * maskCount) blend(refClean, cur);
             return null;
         }
         if (still < p.stableFrames) return null;
@@ -333,7 +335,7 @@ public final class DartDetector {
     /** Shape of the last change outside the double ring (elongation, alignment with the camera); for tuning. */
     public double lastElongation = Double.NaN, lastAlignment = Double.NaN;
     public double minElongation = 1.4, minAlignment = 0.8;
-    public double lastAreaMm2 = Double.NaN, maxCompactAreaMm2 = 1500;
+    public double lastAreaMm2 = Double.NaN, maxCompactAreaMm2 = 1500, maxDartAreaMm2 = 3500;
 
     /**
      * Is this change shaped like a dart? On the flattened board a dart is a long streak from its tip
@@ -369,6 +371,7 @@ public final class DartDetector {
         double[] a = imgToBoard.map(c0[0], c0[1]), bx = imgToBoard.map(c0[0] + 1, c0[1]), by = imgToBoard.map(c0[0], c0[1] + 1);
         double pxArea = Math.abs((bx[0] - a[0]) * (by[1] - a[1]) - (bx[1] - a[1]) * (by[0] - a[0]));
         lastAreaMm2 = blob.length * pxArea;
+        if (lastAreaMm2 > maxDartAreaMm2) return false;             // far bigger than a dart: a light patch
         if (lastAreaMm2 <= maxCompactAreaMm2) return true;          // small: a dart seen (nearly) end-on
         return lastElongation >= minElongation && lastAlignment >= minAlignment;
     }
@@ -421,9 +424,28 @@ public final class DartDetector {
                     int r = ref[ny * w + nx];
                     ok = Math.abs(cur[i] - r) <= tol || Math.abs(cur[i] - kl * r) <= tol;
                 }
+            if (!ok && p.blurTolerant) {
+                // Refocus / a shift of up to 2 px: the 3x3 means of both pictures still agree, while a
+                // new object (wider than a couple of pixels) changes them.
+                double bc = mean3(cur, x, y);
+                for (int dy = -2; dy <= 2 && !ok; dy++)
+                    for (int dx = -2; dx <= 2 && !ok; dx++) {
+                        int nx = x + dx, ny = y + dy;
+                        if (nx < 1 || ny < 1 || nx >= w - 1 || ny >= h - 1) continue;
+                        double br = mean3(ref, nx, ny);
+                        ok = Math.abs(bc - br) <= tol;
+                    }
+            }
             if (ok) explained++;
         }
         return (double) explained / blob.length;
+    }
+
+    private double mean3(int[] a, int x, int y) {
+        int sum = 0, cnt = 0;
+        for (int yy = Math.max(0, y - 1); yy <= Math.min(h - 1, y + 1); yy++)
+            for (int xx = Math.max(0, x - 1); xx <= Math.min(w - 1, x + 1); xx++) { sum += a[yy * w + xx]; cnt++; }
+        return (double) sum / cnt;
     }
 
     private Event takeout(int[] cur, int n) {
