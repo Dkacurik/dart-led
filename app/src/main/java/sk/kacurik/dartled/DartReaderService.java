@@ -62,6 +62,7 @@ public final class DartReaderService extends AccessibilityService {
         List<String> texts = new ArrayList<>();
         collect(root, texts, 0);
         DartApp.get().onScreenTexts(String.valueOf(root.getPackageName()), texts);
+        DartTyper.captureButtons();
     }
 
     AccessibilityNodeInfo dartCounterRoot() {

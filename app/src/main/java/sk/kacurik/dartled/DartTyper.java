@@ -42,7 +42,8 @@ public final class DartTyper {
 
     // ---------------------------------------------------------------- public API (main thread)
 
-    public void enterDart(String label, Result cb) {
+    public void enterDart(String label, Result cb0) {
+        Result cb = logged("DART " + label, cb0);
         enqueue(() -> {
             String err = precheck();
             if (err != null) { finish(cb, "ERR " + err); return; }
@@ -53,7 +54,8 @@ public final class DartTyper {
         });
     }
 
-    public void submit(Result cb) {
+    public void submit(Result cb0) {
+        Result cb = logged("SUBMIT", cb0);
         enqueue(() -> {
             String err = precheck();
             if (err != null) { finish(cb, "ERR " + err); return; }
@@ -68,7 +70,8 @@ public final class DartTyper {
         });
     }
 
-    public void undo(Result cb) {
+    public void undo(Result cb0) {
+        Result cb = logged("UNDO", cb0);
         enqueue(() -> {
             String err = precheck();
             if (err != null) { finish(cb, "ERR " + err); return; }
@@ -129,11 +132,20 @@ public final class DartTyper {
         collect(root, all, 0);
         Keypad kp = Keypad.find(elements(all));
         Keypad.El k = kp == null ? null : kp.target(labels);
-        if (k != null && click(svc, all.get(k.index))) return null;
+        if (k != null) {
+            String how = click(svc, all.get(k.index));
+            log("  " + labels[0] + ": keypad " + k + " → " + how);
+            if (how.startsWith("ok")) return null;
+        } else {
+            log("  " + labels[0] + ": " + (kp == null ? "no keypad on screen" : "not on the keypad"));
+        }
         // Other layouts: any element with that text.
         for (String want : labels) {
             AccessibilityNodeInfo node = find(root, plain(want), descContains);
-            if (node != null && click(svc, node)) return null;
+            if (node == null) continue;
+            String how = click(svc, node);
+            log("  " + want + ": by text → " + how);
+            if (how.startsWith("ok")) return null;
         }
         return labels[0];
     }
@@ -190,20 +202,23 @@ public final class DartTyper {
         return null;
     }
 
-    private static boolean click(AccessibilityService svc, AccessibilityNodeInfo node) {
+    /** "ok click" / "ok tap" on success, else why not. */
+    private static String click(AccessibilityService svc, AccessibilityNodeInfo node) {
         AccessibilityNodeInfo t = clickTarget(node);
-        if (t != null && t.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true;
+        if (t != null && t.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return "ok click";
         // Fallback: a real tap in the middle of the label (needs canPerformGestures).
         Rect r = new Rect();
         node.getBoundsInScreen(r);
-        if (r.isEmpty()) return false;
+        if (r.isEmpty()) return (t == null ? "not pressable" : "click refused") + ", no bounds";
         Path p = new Path();
         p.moveTo(r.exactCenterX(), r.exactCenterY());
         try {
-            return svc.dispatchGesture(new GestureDescription.Builder()
+            boolean ok = svc.dispatchGesture(new GestureDescription.Builder()
                     .addStroke(new GestureDescription.StrokeDescription(p, 0, 60)).build(), null, null);
+            return (ok ? "ok tap @" : "tap refused @") + r.centerX() + "," + r.centerY()
+                    + (t == null ? " (not pressable)" : " (click refused)");
         } catch (Exception e) {
-            return false;
+            return "tap failed: " + e.getMessage();
         }
     }
 
@@ -235,6 +250,45 @@ public final class DartTyper {
     }
 
     // ---------------------------------------------------------------- debugging
+
+    private static final ArrayDeque<String> LOG = new ArrayDeque<>();
+    private static String cachedButtons = "";
+    private static long cachedAt;
+
+    static synchronized void log(String line) {
+        String time = new java.text.SimpleDateFormat("HH:mm:ss", Locale.ROOT).format(new java.util.Date());
+        LOG.addLast(time + " " + line);
+        while (LOG.size() > 60) LOG.removeFirst();
+    }
+
+    /** The last requests (from DartCam or the test button) and what was pressed for them. */
+    public static synchronized String logText() {
+        return LOG.isEmpty() ? "(nothing yet: no dart came from DartCam and no test was run)" : String.join("\n", LOG);
+    }
+
+    private static Result logged(String what, Result cb) {
+        log("<- " + what);
+        return line -> { log("-> " + line); cb.done(line); };
+    }
+
+    /** Called while DartCounter is on screen: keeps its buttons for "Copy DartCounter buttons". */
+    public static void captureButtons() {
+        long now = System.currentTimeMillis();
+        if (now - cachedAt < 3000) return;
+        String s = describeButtons();
+        if (s.startsWith("DartCounter not on screen")) return;
+        cachedButtons = s;
+        cachedAt = now;
+    }
+
+    /** DartCounter's buttons (live, or as last seen) plus the request log. */
+    public static String report() {
+        String live = describeButtons();
+        String buttons = !live.startsWith("DartCounter not on screen") ? live
+                : cachedButtons.isEmpty() ? live
+                : "(as seen " + (System.currentTimeMillis() - cachedAt) / 1000 + " s ago in DartCounter)\n" + cachedButtons;
+        return buttons + "\n--- last requests ---\n" + logText() + "\n";
+    }
 
     /** Every visible DartCounter element with text, whether it can be pressed, and where. */
     public static String describeButtons() {

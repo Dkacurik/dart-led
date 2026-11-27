@@ -96,6 +96,7 @@ public final class CamServer {
             s.setTcpNoDelay(true);
             out = s.getOutputStream();
             clients.add(out);
+            DartTyper.log("phone connected (" + s.getInetAddress().getHostAddress() + ")");
             if (!lastState.isEmpty()) write(out, lastState);
             BufferedReader in = new BufferedReader(new InputStreamReader(s.getInputStream(), StandardCharsets.UTF_8));
             String line;
@@ -109,7 +110,7 @@ public final class CamServer {
             }
         } catch (Exception ignored) {
         } finally {
-            if (out != null) clients.remove(out);
+            if (out != null) { clients.remove(out); DartTyper.log("phone disconnected"); }
             try { s.close(); } catch (Exception ignored) { }
         }
     }

@@ -273,10 +273,16 @@ public final class MainActivity extends Activity {
             app.setTypingOn(!app.typingOn());
             typeBtn.setText(app.typingOn() ? "Enter darts into DartCounter: ON" : "Enter darts into DartCounter: OFF");
         });
-        text(col, "If a dart is entered wrongly or not at all: open a match in DartCounter, come back, tap the "
-                + "button below and send the copied text, so the button names can be adjusted.", 13);
+        text(col, "Test without the phone: tap the button, switch to the DartCounter match within 5 s; "
+                + "Dart LED then enters T20 by itself.", 13);
+        button(col, "Test: enter T20 in 5 s", v -> {
+            Toast.makeText(this, "Switch to DartCounter now – T20 in 5 s", Toast.LENGTH_LONG).show();
+            handler.postDelayed(() -> app.typer().enterDart("T20", line -> { }), 5000);
+        });
+        text(col, "If a dart is entered wrongly or not at all: have a match open in DartCounter, come back, tap the "
+                + "button below and send the copied text (DartCounter's buttons and the last requests).", 13);
         button(col, "Copy DartCounter buttons", v -> {
-            String s = DartTyper.describeButtons();
+            String s = DartTyper.report();
             buttonsText.setText(s);
             ClipboardManager cm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
             cm.setPrimaryClip(ClipData.newPlainText("DartCounter buttons", s));
