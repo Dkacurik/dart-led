@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Locale;
 
 import sk.kacurik.dartled.core.Keypad;
+import sk.kacurik.dartled.core.Prompts;
 import sk.kacurik.dartled.core.Scoreboard;
 
 /**
@@ -49,6 +50,12 @@ public final class DartTyper {
             if (err != null) { finish(cb, "ERR " + err); return; }
             List<String[]> steps = plan(label);
             if (steps == null) { finish(cb, "ERR unknown dart " + label); return; }
+            if (promptOpen()) {
+                // Bust banner or "darts used on a double" dialog: the visit is over, the next submit
+                // (takeout / NEXT) answers it. A tap now would land behind the dialog.
+                finish(cb, "WARN DART " + label + " not entered: DartCounter waits for the bust/dialog confirmation");
+                return;
+            }
             int before = DartApp.get().board().entered.size();
             press(steps, 0, label, cb, before);
         });
@@ -59,15 +66,60 @@ public final class DartTyper {
         enqueue(() -> {
             String err = precheck();
             if (err != null) { finish(cb, "ERR " + err); return; }
-            if (DartApp.get().board().entered.isEmpty()) {
+            Scoreboard b = DartApp.get().board();
+            int active = -1;
+            for (Scoreboard.Player pl : b.players) if (pl.active) active = pl.score;
+            final int start = active;
+            List<String> darts = new ArrayList<>(b.entered);
+            if (promptOpen()) {                         // bust banner / dialog: answer it instead
+                answerPrompts(start, darts, 0, cb, "OK SUBMIT (confirmed)");
+                return;
+            }
+            if (b.entered.isEmpty()) {
                 // DartCounter already moved on by itself (e.g. after the 3rd dart): nothing to do,
                 // and pressing SUBMIT now would enter an empty visit for the next player.
                 finish(cb, "OK SUBMIT (nothing entered)");
                 return;
             }
             String miss = tap(SUBMIT, false);
-            finishLater(cb, miss == null ? "OK SUBMIT" : "ERR no " + miss + " button");
+            if (miss != null) { finishLater(cb, "ERR no " + miss + " button"); return; }
+            // A bust banner or a "darts used on a double" dialog may follow.
+            handler.postDelayed(() -> answerPrompts(start, darts, 0, cb, "OK SUBMIT"), SETTLE_MS + 300);
         });
+    }
+
+    /** Screen elements and size right now, or null. */
+    private static Object[] screen() {
+        DartReaderService svc = DartReaderService.instance;
+        AccessibilityNodeInfo root = svc == null ? null : svc.dartCounterRoot();
+        if (root == null) return null;
+        List<AccessibilityNodeInfo> all = new ArrayList<>();
+        collect(root, all, 0);
+        Rect r = new Rect();
+        root.getBoundsInScreen(r);
+        return new Object[]{elements(all), r.right, r.bottom};
+    }
+
+    @SuppressWarnings("unchecked")
+    private static boolean promptOpen() {
+        Object[] sc = screen();
+        return sc != null && Prompts.blocking((List<Keypad.El>) sc[0], (int) sc[1], (int) sc[2]);
+    }
+
+    /** Answer the bust banner / dialogs on screen (a bust is followed by a dialog: a few rounds). */
+    @SuppressWarnings("unchecked")
+    private void answerPrompts(int start, List<String> darts, int round, Result cb, String okLine) {
+        Object[] sc = screen();
+        List<Prompts.Tap> taps = sc == null ? new ArrayList<>()
+                : Prompts.answer((List<Keypad.El>) sc[0], (int) sc[1], (int) sc[2], start, darts);
+        if (taps.isEmpty() || round >= 3) { finish(cb, okLine); return; }
+        DartReaderService svc = DartReaderService.instance;
+        long delay = 0;
+        for (Prompts.Tap t : taps) {
+            handler.postDelayed(() -> log("  " + t + ": " + (svc == null ? "no service" : touch(svc, t.x, t.y))), delay);
+            delay += TAP_GAP_MS;
+        }
+        handler.postDelayed(() -> answerPrompts(start, darts, round + 1, cb, okLine), delay + SETTLE_MS);
     }
 
     public void undo(Result cb0) {

@@ -27,7 +27,13 @@ Setup:
    Outer 25**, numbers 1–20, undo arrow and **MISS**). Dart LED finds that keypad on the screen
    (`app/.../core/Keypad.java`): T20 = Treble, 20; D16 = Double, 16; S5 = Single, 5; 25 = Outer 25;
    bull = Bull 50; the visit is submitted with the green arrow in the input bar, UNDO presses the undo
-   arrow left of MISS (`tools/typer-sim/KeypadTest.java` checks this on that screen).
+   arrow left of MISS (`tools/typer-sim/KeypadTest.java` checks this on that screen). DartCounter is a web
+   app, so Dart LED taps like a finger; numbers are found by the keypad grid (in Double/Treble mode the
+   buttons read "20 40" / "20 60").
+   **Bust / end of leg:** on the next submit (takeout or NEXT ▶) Dart LED presses the bust banner's
+   **Confirm**, answers **DARTS USED ON A DOUBLE** (darts thrown while the score left was a double –
+   2–40 even or 50) and confirms the dialog (`core/Prompts.java`, `PromptsTest`). Darts sent while such
+   a banner/dialog is open are not entered.
 3. Phone: install `DartCam.apk`, allow the camera, put phone and tablet on the same Wi-Fi.
    DartCam finds the tablet by itself (the address can be typed in as a fallback: tap the status line).
 4. Fix the phone so it can't move, pull the darts out of the board and tap **⚙** (calibration). Tap **Auto**: DartCam finds the board by itself (the first time it tries right away) and sets the zoom
