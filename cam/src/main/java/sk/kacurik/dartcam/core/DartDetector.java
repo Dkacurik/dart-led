@@ -44,9 +44,10 @@ public final class DartDetector {
         public double emptyFraction = 0.0010; // frame "matches the empty board" below this share
         public double occludedFraction = 0.12; // more than this changed = someone in front of the board
         public double maskRadiusMm = 260;     // area watched (board + surround, flights stick out)
-        public int recoverFrames = 45;
-        public double outsideMarginMm = 5;
-        public double explainedReject = 0.88; // change explained this well by the old picture = not a dart    // "darts" with the tip further outside the double ring are ignored        // still frames after a big unexplained change before adopting it (~2 s)
+        public int recoverFrames = 45;        // still frames after a big unexplained change before adopting it (~2 s)
+        public double missRadiusMm = 250;     // tips up to here (number ring, board edge, surround) = MISS; further out ignored
+        public double explainedReject = 0.88; // change explained this well by the old picture = not a dart
+        public double vanishedShare = 0.85;   // changed area explained this well by the clean board = a dart was pulled out
     }
 
     private final int w, h;
@@ -56,6 +57,7 @@ public final class DartDetector {
     private int maskCount;
 
     private int[] prev, refVisit, refEmpty;
+    private int[] refClean;     // the board seen without darts (start, and every takeout that left it empty)
     private int still;
     private boolean moving, blocked;
     private int dartsInVisit;
@@ -93,11 +95,11 @@ public final class DartDetector {
      */
     public void updateCalibration(Homography imgToBoard) {
         if (this.imgToBoard == null) { setCalibration(imgToBoard); return; }
-        int[] pv = prev, rv = refVisit, re = refEmpty;
+        int[] pv = prev, rv = refVisit, re = refEmpty, rc = refClean;
         int still0 = still, darts = dartsInVisit;
         boolean mv = moving, bl = blocked;
         setCalibration(imgToBoard);
-        prev = pv; refVisit = rv; refEmpty = re;
+        prev = pv; refVisit = rv; refEmpty = re; refClean = rc;
         still = still0; dartsInVisit = darts; moving = mv; blocked = bl;
     }
 
@@ -120,7 +122,7 @@ public final class DartDetector {
 
     /** Forget the references: the next still frame becomes the empty board. */
     public void reset() {
-        prev = refVisit = refEmpty = null;
+        prev = refVisit = refEmpty = refClean = null;
         still = 0;
         moving = false;
         blocked = false;
@@ -148,7 +150,7 @@ public final class DartDetector {
         if (imgToBoard == null) return null;
         int[] cur = gray.clone();
         if (prev == null) {
-            prev = cur; refVisit = cur.clone(); refEmpty = cur.clone();
+            prev = cur; refVisit = cur.clone(); refEmpty = cur.clone(); refClean = cur.clone();
             return null;
         }
         int motion = countDiff(cur, prev, null);
@@ -185,20 +187,34 @@ public final class DartDetector {
         blocked = false;
         if (n > p.occludedFraction * maskCount) {
             // Someone stands in front / big light change. Board empty again? -> takeout.
-            if (countDiff(cur, refEmpty, null) < p.emptyFraction * maskCount * 3) return takeout(cur, n);
+            if (looksLike(cur, refEmpty, p.emptyFraction * maskCount * 3)
+                    || looksLike(cur, refClean, p.emptyFraction * maskCount * 3)) return takeout(cur, n);
             blocked = true;                                               // wait for the view to clear
             return null;
         }
-        int emptyDiff = countDiff(cur, refEmpty, null);
-        if (dartsInVisit > 0 && emptyDiff < p.emptyFraction * maskCount) return takeout(cur, n);
+        if (dartsInVisit > 0 && looksLike(cur, refEmpty, p.emptyFraction * maskCount)) return takeout(cur, n);
         if (dartsInVisit >= 3) return takeout(cur, n); // after three darts, any change means darts were pulled
 
         int[] blob = dartPixels(changed);
+        boolean vanished = false;
         if (blob == null || blob.length < p.minDartFraction * maskCount) {
             refVisit = cur;
             return null;
         }
         lastExplained = explained(blob, cur, refVisit);
+        if (refClean != null && lastExplained < p.explainedReject) {
+            double clean = explained(blob, cur, refClean);
+            if (clean >= p.vanishedShare && clean - lastExplained >= 0.12) vanished = true;
+        }
+        if (vanished) {
+            // Where the picture changed it looks like the clean board again: a dart was pulled out
+            // (also with a light/exposure change from someone standing at the board), not thrown.
+            vanishedChanges++;
+            if (dartsInVisit > 0) return takeout(cur, n);
+            refVisit = cur.clone();
+            refEmpty = cur.clone();
+            return null;
+        }
         if (lastExplained >= p.explainedReject) {
             ignoredChanges++;
             // The old picture, a bit brighter/darker or shifted by a pixel, explains the change:
@@ -208,9 +224,15 @@ public final class DartDetector {
         }
         double[] tip = findTip(blob);
         double[] b = imgToBoard.map(tip[0], tip[1]);
-        if (Math.hypot(b[0], b[1]) > Board.R_DOUBLE_OUT + p.outsideMarginMm) {
-            // Not a dart in the board: light flicker on the number ring, a shadow, something on the wall.
-            // Take the change into the reference; real misses are entered with the Miss button.
+        if (Math.hypot(b[0], b[1]) > p.missRadiusMm) {
+            // Beyond the board and its surround: something on the wall, a person – not a dart.
+            refVisit = cur;
+            return null;
+        }
+        if (Math.hypot(b[0], b[1]) > Board.R_DOUBLE_OUT && !dartLike(blob)) {
+            // Outside the double ring only a dart-shaped change counts as a miss; light flicker on
+            // the number ring, a shadow at the board edge… are taken into the reference.
+            ignoredChanges++;
             refVisit = cur;
             return null;
         }
@@ -220,10 +242,71 @@ public final class DartDetector {
         return new Event(Type.DART, tip[0], tip[1], b[0], b[1], hit, blob.length, dartsInVisit);
     }
 
+    /** Shape of the last change outside the double ring (elongation, alignment with the camera); for tuning. */
+    public double lastElongation = Double.NaN, lastAlignment = Double.NaN;
+    public double minElongation = 1.4, minAlignment = 0.8;
+    public double lastAreaMm2 = Double.NaN, maxCompactAreaMm2 = 1500;
+
+    /**
+     * Is this change shaped like a dart? On the flattened board a dart is a long streak from its tip
+     * away from the camera's foot point (it sticks out towards the camera): elongated, and its long
+     * axis points at the foot point. Flicker patches on the number ring run along the ring instead.
+     */
+    boolean dartLike(int[] blob) {
+        double mx = 0, my = 0;
+        double[][] bp = new double[blob.length][];
+        for (int k = 0; k < blob.length; k++) {
+            bp[k] = imgToBoard.map(blob[k] % w + 0.5, blob[k] / w + 0.5);
+            mx += bp[k][0]; my += bp[k][1];
+        }
+        mx /= blob.length; my /= blob.length;
+        double sxx = 0, syy = 0, sxy = 0;
+        for (double[] q : bp) {
+            double dx = q[0] - mx, dy = q[1] - my;
+            sxx += dx * dx; syy += dy * dy; sxy += dx * dy;
+        }
+        double tr = sxx + syy, det = sxx * syy - sxy * sxy;
+        double disc = Math.sqrt(Math.max(0, tr * tr / 4 - det));
+        double l1 = tr / 2 + disc, l2 = Math.max(1e-9, tr / 2 - disc);
+        lastElongation = Math.sqrt(l1 / l2);
+        double theta = 0.5 * Math.atan2(2 * sxy, sxx - syy);
+        double ux = Math.cos(theta), uy = Math.sin(theta);
+        lastAlignment = 1;
+        if (cameraFoot != null) {
+            double fx = mx - cameraFoot[0], fy = my - cameraFoot[1], fl = Math.hypot(fx, fy);
+            if (fl > 1e-6) lastAlignment = Math.abs(ux * fx + uy * fy) / fl;
+        }
+        // Area on the board (mm²) from the pixel size at the centre of the change.
+        double[] c0 = imgToBoard.inverse().map(mx, my);
+        double[] a = imgToBoard.map(c0[0], c0[1]), bx = imgToBoard.map(c0[0] + 1, c0[1]), by = imgToBoard.map(c0[0], c0[1] + 1);
+        double pxArea = Math.abs((bx[0] - a[0]) * (by[1] - a[1]) - (bx[1] - a[1]) * (by[0] - a[0]));
+        lastAreaMm2 = blob.length * pxArea;
+        if (lastAreaMm2 <= maxCompactAreaMm2) return true;          // small: a dart seen (nearly) end-on
+        return lastElongation >= minElongation && lastAlignment >= minAlignment;
+    }
+
     /** Share of the last evaluated change explained by the old picture (see explained()); for tests/tuning. */
     public double lastExplained = Double.NaN;
     /** How many changes were ignored as "not a new object" (for the debug record). */
     public int ignoredChanges;
+    /** How many changes were darts being pulled out (for tests and the debug record). */
+    public int vanishedChanges;
+
+    /**
+     * cur matches ref apart from light changes: fewer than maxPixels changed pixels that a locally
+     * brighter/darker ref doesn't explain (someone standing at the board changes the exposure).
+     */
+    boolean looksLike(int[] cur, int[] ref, double maxPixels) {
+        if (ref == null) return false;
+        boolean[] ch = new boolean[w * h];
+        int n = countDiff(cur, ref, ch);
+        if (n < maxPixels) return true;
+        if (n > p.occludedFraction * maskCount * 2) return false;    // far too different
+        int[] px = new int[n];
+        int k = 0;
+        for (int i = 0; i < ch.length; i++) if (ch[i]) px[k++] = i;
+        return n * (1 - explained(px, cur, ref)) < maxPixels;
+    }
 
     /**
      * Share of the changed pixels that the old picture explains: shifted by at most 1 px and/or with a
@@ -256,6 +339,7 @@ public final class DartDetector {
     }
 
     private Event takeout(int[] cur, int n) {
+        if (looksLike(cur, refClean, p.emptyFraction * maskCount)) refClean = cur.clone();
         refVisit = cur.clone();
         refEmpty = cur.clone();
         dartsInVisit = 0;

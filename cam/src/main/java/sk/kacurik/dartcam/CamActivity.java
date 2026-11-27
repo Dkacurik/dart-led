@@ -144,6 +144,8 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
     private static final class AutoRecord {
         final Bitmap frame; final String trigger; final AutoCalibrator.Result r; // r: null for detections
         Bitmap before; // detections: the picture before the dart
+        Bitmap crop;   // detections: the full-resolution zoom window
+        String cal;    // detections: calibration in force (4 image points of the analysis picture)
         final float gx, gy, zoom; final long time; final String outcome;
         AutoRecord(Bitmap frame, String trigger, AutoCalibrator.Result r, float gx, float gy, float zoom, String outcome) {
             this.frame = frame; this.trigger = trigger; this.r = r; this.gx = gx; this.gy = gy; this.zoom = zoom;
@@ -158,14 +160,26 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
         record(frame, null, trigger, r, outcome);
     }
 
-    private void record(Bitmap frame, Bitmap before, String trigger, AutoCalibrator.Result r, String outcome) {
+    private AutoRecord record(Bitmap frame, Bitmap before, String trigger, AutoCalibrator.Result r, String outcome) {
         ZoomState zs = zoomState();
         AutoRecord rec = new AutoRecord(frame, trigger, r, gravX, gravY, zs == null ? Float.NaN : zs.getZoomRatio(), outcome);
         rec.before = before;
+        if (r == null && detector != null && detector.calibrated()) {
+            try {
+                Homography b2i = detector.imgToBoard().inverse();
+                StringBuilder c = new StringBuilder();
+                for (double[] bp : Board.CALIBRATION_POINTS) {
+                    double[] ip = b2i.map(bp[0], bp[1]);
+                    c.append(String.format(Locale.ROOT, "%.2f:%.2f;", ip[0], ip[1]));
+                }
+                rec.cal = c.toString();
+            } catch (Exception ignored) { }
+        }
         synchronized (records) {
             records.addLast(rec);
             while (records.size() > 12) records.removeFirst();
         }
+        return rec;
     }
 
     /** "Calibration updated" note and until when to show it (UI thread). */
@@ -795,10 +809,18 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
                             rec.before.compress(Bitmap.CompressFormat.PNG, 100, z);
                             z.closeEntry();
                         }
+                        if (rec.crop != null) {
+                            z.putNextEntry(new ZipEntry(fn.replace(".png", "-zoom.png")));
+                            rec.crop.compress(Bitmap.CompressFormat.PNG, 100, z);
+                            z.closeEntry();
+                        }
                         AutoCalibrator.Result r = rec.r;
                         if (r == null) { // a detected dart
-                            info.append(fn).append('\t').append(String.format(Locale.ROOT, "time=%tT ", rec.time))
-                                    .append(rec.outcome.replace(' ', '_')).append('\n');
+                            info.append(fn).append('\t').append(String.format(Locale.ROOT, "time=%tT gx=%.3f gy=%.3f zoom=%.3f ",
+                                            rec.time, rec.gx, rec.gy, rec.zoom))
+                                    .append(rec.outcome.replace(' ', '_'));
+                            if (rec.cal != null) info.append(" cal=").append(rec.cal);
+                            info.append('\n');
                             continue;
                         }
                         info.append(fn).append('\t')
@@ -989,7 +1011,8 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
                     ev.imgX, ev.imgY, ev.hit, detector.lastExplained, zr == null ? "none" : zr.toString());
             if (why != null) {
                 detector.forgetLastDart(); // keep the new reference picture, don't count it
-                record(upright, beforeUpright, "dart", null, "dropped (" + why + ") " + desc);
+                AutoRecord dr = record(upright, beforeUpright, "dart", null, "dropped (" + why + ") " + desc);
+                if (zoom != null) dr.crop = zoom.crop;
                 ev = null;
                 zoom = null;
                 runOnUiThread(() -> {
@@ -999,7 +1022,8 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
                     updateHint();
                 });
             } else {
-                record(upright, beforeUpright, "dart", null, "scored " + desc);
+                AutoRecord sr = record(upright, beforeUpright, "dart", null, "scored " + desc);
+                if (zoom != null) sr.crop = zoom.crop;
             }
         }
         // The last still picture becomes the "before" of the next dart (also right after a dart).

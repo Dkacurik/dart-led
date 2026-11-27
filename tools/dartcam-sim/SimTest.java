@@ -227,6 +227,7 @@ public class SimTest {
         }
         for (int i = 0; i < 8; i++) det.feed(noisy(empty));
         int phantoms = 0;
+        StringBuilder shapes = new StringBuilder();
         for (int burst = 0; burst < 12; burst++) {
             // A few random 25-40° patches of the ring get brighter for a moment, then settle.
             int[] fr = empty.clone();
@@ -237,9 +238,11 @@ public class SimTest {
             }
             for (int i = 0; i < 2; i++) { DartDetector.Event e = det.feed(noisy(fr)); if (e != null && e.type == DartDetector.Type.DART) phantoms++; }
             for (int i = 0; i < 10; i++) { DartDetector.Event e = det.feed(noisy(fr)); if (e != null && e.type == DartDetector.Type.DART) phantoms++; }
+            if (!Double.isNaN(det.lastElongation)) shapes.append(String.format(Locale.ROOT, " %.1f/%.2f/%.0fmm²", det.lastElongation, det.lastAlignment, det.lastAreaMm2));
+            det.lastElongation = Double.NaN;
             for (int i = 0; i < 10; i++) { DartDetector.Event e = det.feed(noisy(empty)); if (e != null && e.type == DartDetector.Type.DART) phantoms++; }
         }
-        System.out.println("  flickering number ring, no darts thrown: " + phantoms + " phantom darts");
+        System.out.println("  flickering number ring, no darts thrown: " + phantoms + " phantom darts (patch shapes, elongation/alignment/area:" + shapes + ")");
         check(phantoms == 0, "no phantom darts from the number ring");
 
         // A real dart just outside the double ring (tip 2 mm outside) is still a dart.
@@ -251,8 +254,49 @@ public class SimTest {
         DartDetector.Event ev = null;
         det.feed(noisy(scene)); det.feed(noisy(scene));
         for (int i = 0; i < 10; i++) { DartDetector.Event e = det.feed(noisy(scene)); if (ev == null) ev = e; }
-        System.out.println("  dart 2 mm outside the double: " + ev);
+        System.out.printf(Locale.ROOT, "  dart 2 mm outside the double: %s (shape: elongation %.1f, alignment %.2f)%n",
+                ev, det.lastElongation, det.lastAlignment);
         check(ev != null && ev.type == DartDetector.Type.DART, "dart just outside the double ring still reported");
+
+        // Misses anywhere around the board (number ring, board edge, surround) are reported as MISS.
+        int[][] misses = {{3, 195}, {19, 215}, {3, 240}, {16, 185}, {17, 205}};
+        for (int[] m : misses) {
+            det.reset();
+            for (int i = 0; i < 8; i++) det.feed(noisy(empty));
+            int[] sc = empty.clone();
+            double[] q = Board.pointFor(m[0], m[1]);
+            paintDart(sc, q[0], q[1], 0, 0.15, 200);   // light flight (real flights are coloured)
+            DartDetector.Event me = null;
+            for (int i = 0; i < 12; i++) { DartDetector.Event e = det.feed(noisy(sc)); if (me == null) me = e; }
+            double[] qi = b2i.map(q[0], q[1]);
+            System.out.printf(Locale.ROOT, "  miss at %d, r=%d mm (image %.0f,%.0f of %dx%d): %s (elongation %.1f, alignment %.2f, %.0f mm²)%n",
+                    m[0], m[1], qi[0], qi[1], W, H, me, det.lastElongation, det.lastAlignment, det.lastAreaMm2);
+            check(me != null && me.type == DartDetector.Type.DART && me.hit.label().equals("MISS"),
+                    "miss at " + m[0] + " r=" + m[1] + " reported as MISS");
+        }
+
+        // Two darts, then they are pulled out while the exposure changes (someone at the board):
+        // a takeout, never a dart.
+        det.reset();
+        for (int i = 0; i < 8; i++) det.feed(noisy(empty));
+        int[] two = empty.clone();
+        double[] d1 = Board.pointFor(20, 130), d2 = Board.pointFor(5, 60);
+        int darts = 0;
+        paintDart(two, d1[0], d1[1], 0, 0.15, 200);
+        for (int i = 0; i < 12; i++) { DartDetector.Event e = det.feed(noisy(two)); if (e != null && e.type == DartDetector.Type.DART) darts++; }
+        paintDart(two, d2[0], d2[1], 0, 0.15, 200);
+        for (int i = 0; i < 12; i++) { DartDetector.Event e = det.feed(noisy(two)); if (e != null && e.type == DartDetector.Type.DART) darts++; }
+        int[] pulled = empty.clone();
+        for (int i = 0; i < pulled.length; i++) pulled[i] = Math.min(255, (int) (pulled[i] * 1.12) + 6);
+        int afterDarts = 0, takeouts = 0;
+        for (int i = 0; i < 12; i++) {
+            DartDetector.Event e = det.feed(noisy(pulled));
+            if (e != null && e.type == DartDetector.Type.DART) afterDarts++;
+            if (e != null && e.type == DartDetector.Type.TAKEOUT) takeouts++;
+        }
+        System.out.printf(Locale.ROOT, "  2 darts pulled out during an exposure change: %d darts before, then %d darts, %d takeouts%n",
+                darts, afterDarts, takeouts);
+        check(darts == 2 && afterDarts == 0 && takeouts == 1, "darts pulled out with an exposure change = takeout, not a dart");
     }
 
     static int failures;
