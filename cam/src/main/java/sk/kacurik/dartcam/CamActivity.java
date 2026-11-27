@@ -1041,8 +1041,9 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
             // Last check: not every change is a dart (flicker, a screen's moiré at the board edge…).
             TipRefiner.Result zr = zoom == null ? null : zoom.result;
             String why = DartGate.reject(ev.hit, zr);
-            String desc = String.format(Locale.ROOT, "tip %.1f,%.1f detector %s (explained %.2f), zoom: %s",
-                    ev.imgX, ev.imgY, ev.hit, detector.lastExplained, zr == null ? "none" : zr.toString());
+            String desc = String.format(Locale.ROOT, "tip %.1f,%.1f detector %s (explained %.2f, spread %.0f mm, fill %.2f), zoom: %s",
+                    ev.imgX, ev.imgY, ev.hit, detector.lastExplained, detector.lastSpreadMm, detector.lastFill,
+                    zr == null ? "none" : zr.toString());
             if (why != null) {
                 detector.forgetLastDart(); // keep the new reference picture, don't count it
                 AutoRecord dr = record(upright, beforeUpright, "dart", null, "dropped (" + why + ") " + desc);

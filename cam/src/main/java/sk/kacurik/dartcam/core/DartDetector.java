@@ -47,7 +47,9 @@ public final class DartDetector {
         public int recoverFrames = 45;        // still frames after a big unexplained change before adopting it (~2 s)
         public double missRadiusMm = 250;     // tips up to here (number ring, board edge, surround) = MISS; further out ignored
         public double explainedReject = 0.88; // change explained this well by the old picture = not a dart
-        public double vanishedShare = 0.85;   // changed area explained this well by the clean board = a dart was pulled out
+        public double vanishedShare = 0.85;
+        public double maxSpreadMm = 60;
+        public double minFill = 0.15;         // a dart fills its extent (length × width); outlines from focus/shake don't       // changed pixels spread wider than this (std. dev. along the main axis) = not one dart   // changed area explained this well by the clean board = a dart was pulled out
     }
 
     private final int w, h;
@@ -215,6 +217,30 @@ public final class DartDetector {
             refEmpty = cur.clone();
             return null;
         }
+        lastSpreadMm = spreadMm(blob);
+        if (lastSpreadMm > p.maxSpreadMm) {
+            // Spread over the board: a dart plus something else (a hand at the edge), or no dart at
+            // all (focus, a tiny shift of the camera: wires and edges change everywhere). A dart is
+            // one piece: keep the largest piece if that is compact, else it is not a dart.
+            int[] piece = largestPiece(blob);
+            double sp = spreadMm(piece);
+            lastPieceShare = (double) piece.length / blob.length;
+            if (sp > p.maxSpreadMm || piece.length < p.minDartFraction * maskCount) {
+                lastSpreadMm = sp;
+                ignoredChanges++;
+                refVisit = cur;
+                return null;
+            }
+            blob = piece;
+            lastSpreadMm = sp;
+            lastExplained = explained(blob, cur, refVisit);
+        }
+        if (lastFill < p.minFill) {
+            // Scattered thin lines (wire and edge outlines from focus or a camera shake), not a solid object.
+            ignoredChanges++;
+            refVisit = cur;
+            return null;
+        }
         if (lastExplained >= p.explainedReject) {
             ignoredChanges++;
             // The old picture, a bit brighter/darker or shifted by a pixel, explains the change:
@@ -240,6 +266,68 @@ public final class DartDetector {
         dartsInVisit++;
         refVisit = cur;
         return new Event(Type.DART, tip[0], tip[1], b[0], b[1], hit, blob.length, dartsInVisit);
+    }
+
+    /** Spread of the last change on the board (mm, std. dev. along its main axis); for tuning. */
+    public double lastSpreadMm = Double.NaN, lastPieceShare = Double.NaN, lastWidthMm = Double.NaN, lastFill = Double.NaN;
+
+    /** The largest 8-connected piece of the changed pixels (1-pixel gaps bridged). */
+    int[] largestPiece(int[] blob) {
+        boolean[] in = new boolean[w * h];
+        for (int i : blob) in[i] = true;
+        int[] label = new int[w * h];
+        int best = 0, bestSize = 0, next = 1;
+        ArrayDeque<Integer> q = new ArrayDeque<>();
+        for (int s0 : blob) {
+            if (label[s0] != 0) continue;
+            int lab = next++, size = 0;
+            label[s0] = lab;
+            q.add(s0);
+            while (!q.isEmpty()) {
+                int i = q.poll();
+                size++;
+                int x = i % w, y = i / w;
+                for (int dy = -2; dy <= 2; dy++)
+                    for (int dx = -2; dx <= 2; dx++) {
+                        int nx = x + dx, ny = y + dy;
+                        if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+                        int j = ny * w + nx;
+                        if (in[j] && label[j] == 0) { label[j] = lab; q.add(j); }
+                    }
+            }
+            if (size > bestSize) { bestSize = size; best = lab; }
+        }
+        int[] out = new int[bestSize];
+        int k = 0;
+        for (int i : blob) if (label[i] == best) out[k++] = i;
+        return out;
+    }
+
+    /** How far the changed pixels spread on the board: std. dev. along their main axis, in mm. */
+    double spreadMm(int[] blob) {
+        double mx = 0, my = 0, sxx = 0, syy = 0, sxy = 0;
+        double[][] bp = new double[blob.length][];
+        for (int k = 0; k < blob.length; k++) {
+            bp[k] = imgToBoard.map(blob[k] % w + 0.5, blob[k] / w + 0.5);
+            mx += bp[k][0]; my += bp[k][1];
+        }
+        mx /= blob.length; my /= blob.length;
+        for (double[] q : bp) {
+            double dx = q[0] - mx, dy = q[1] - my;
+            sxx += dx * dx; syy += dy * dy; sxy += dx * dy;
+        }
+        sxx /= blob.length; syy /= blob.length; sxy /= blob.length;
+        double tr = sxx + syy, det = sxx * syy - sxy * sxy;
+        double disc = Math.sqrt(Math.max(0, tr * tr / 4 - det));
+        lastWidthMm = Math.sqrt(Math.max(0, tr / 2 - disc) * 12);   // full width of an even strip
+        double major = Math.sqrt(tr / 2 + disc);
+        // Share of the change's extent (length × width) actually changed: a dart is solid, focus or
+        // camera-shake changes are thin lines scattered over an area.
+        double[] c0 = imgToBoard.inverse().map(mx, my);
+        double[] a = imgToBoard.map(c0[0], c0[1]), bx = imgToBoard.map(c0[0] + 1, c0[1]), by = imgToBoard.map(c0[0], c0[1] + 1);
+        double pxArea = Math.abs((bx[0] - a[0]) * (by[1] - a[1]) - (bx[1] - a[1]) * (by[0] - a[0]));
+        lastFill = blob.length * pxArea / Math.max(1, major * Math.sqrt(12) * Math.max(lastWidthMm, 1));
+        return major;
     }
 
     /** Shape of the last change outside the double ring (elongation, alignment with the camera); for tuning. */

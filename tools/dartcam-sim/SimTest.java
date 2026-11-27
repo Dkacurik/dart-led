@@ -275,6 +275,29 @@ public class SimTest {
                     "miss at " + m[0] + " r=" + m[1] + " reported as MISS");
         }
 
+        // The camera refocuses / shakes by a pixel: wires and edges change all over the board (no dart).
+        det.reset();
+        for (int i = 0; i < 8; i++) det.feed(noisy(empty));
+        int focusDarts = 0;
+        for (int round = 0; round < 6; round++) {
+            int[] fr = new int[empty.length];
+            int sh = round % 2 == 0 ? 2 : 0;                      // blur, plus a 2 px shift every other time
+            for (int y = 0; y < H; y++)
+                for (int x = 0; x < W; x++) {
+                    int sum = 0, cnt = 0;
+                    for (int dy = -1; dy <= 1; dy++)
+                        for (int dx = -1; dx <= 1; dx++) {
+                            int xx = Math.min(W - 1, Math.max(0, x + dx + sh)), yy = Math.min(H - 1, Math.max(0, y + dy));
+                            sum += empty[yy * W + xx]; cnt++;
+                        }
+                    fr[y * W + x] = sum / cnt;
+                }
+            for (int i = 0; i < 10; i++) { DartDetector.Event e = det.feed(noisy(fr)); if (e != null && e.type == DartDetector.Type.DART) focusDarts++; }
+            for (int i = 0; i < 10; i++) { DartDetector.Event e = det.feed(noisy(empty)); if (e != null && e.type == DartDetector.Type.DART) focusDarts++; }
+        }
+        System.out.println("  camera refocusing / shaking, no darts thrown: " + focusDarts + " phantom darts");
+        check(focusDarts == 0, "no phantom darts from refocusing or a camera shake");
+
         // Two darts, then they are pulled out while the exposure changes (someone at the board):
         // a takeout, never a dart.
         det.reset();
