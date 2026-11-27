@@ -105,10 +105,10 @@ public class KeypadTest {
         for (String[] st : steps) {
             boolean optional = st.length > 0 && "?".equals(st[0]);
             String[] labels = optional ? Arrays.copyOfRange(st, 1, st.length) : st;
-            El e = k.target(labels);
-            if (e == null) { if (!optional) out.add("MISSING"); continue; }
-            String name = "?" + e;
-            for (Map.Entry<String, Integer> m : idx.entrySet()) if (m.getValue() == e.index) name = m.getKey();
+            Keypad.Key key = k.target(labels);
+            if (key == null) { if (!optional) out.add("MISSING"); continue; }
+            String name = "?" + key;
+            for (Map.Entry<String, Integer> m : idx.entrySet()) if (key.el != null && m.getValue() == key.el.index) name = m.getKey();
             out.add(name);
         }
         return out;
@@ -117,7 +117,7 @@ public class KeypadTest {
     static void run(boolean descOnly) {
         String style = descOnly ? "[description-only] " : "[text in cells] ";
         Screen s = build(descOnly);
-        Keypad k = Keypad.find(s.els);
+        Keypad k = Keypad.find(s.els, 2000, 1250);
         check(k != null, style + "keypad found");
         if (k == null) return;
         Map<String, List<String>> want = new LinkedHashMap<>();
@@ -137,15 +137,69 @@ public class KeypadTest {
         int bad = 0;
         for (int n = 1; n <= 20; n++) if (!presses(k, "S" + n).equals(List.of("SINGLE", String.valueOf(n)))) bad++;
         check(bad == 0, style + "S1..S20 all on the keypad (" + bad + " wrong)");
-        El sub = k.target(Keypad.SUBMIT), undo = k.target(Keypad.UNDO);
-        check(sub != null && sub.index == idx.get("SUBMIT"), style + "submit = green arrow (" + sub + ")");
-        check(undo != null && undo.index == idx.get("UNDO"), style + "undo = arrow left of MISS (" + undo + ")");
+        Keypad.Key sub = k.target(Keypad.SUBMIT), undo = k.target(Keypad.UNDO);
+        check(sub != null && sub.el != null && sub.el.index == idx.get("SUBMIT"), style + "submit = green arrow (" + sub + ")");
+        check(undo != null && undo.el != null && undo.el.index == idx.get("UNDO"), style + "undo = arrow left of MISS (" + undo + ")");
+    }
+
+    /**
+     * The real tablet (Galaxy Tab S10 Lite, 2112×1320), from Dart LED's "Copy DartCounter buttons":
+     * DartCounter is a web app and reports some bounds far off screen (player cards, input bar icons,
+     * even the selected "Single" tab at x=2392). Expected tap points come from the screenshot
+     * (2000×1250) scaled by 2112/2000.
+     */
+    static void realTablet() {
+        List<El> els = new ArrayList<>();
+        int[] n = {0};
+        java.util.function.BiConsumer<String, int[]> at = (label, c) ->
+                els.add(new El(label, "", c[0] - 40, c[1] - 25, c[0] + 40, c[1] + 25, true, n[0]++));
+        at.accept("", new int[]{3664, 149});
+        at.accept("", new int[]{3710, 149});
+        els.add(new El("Samuel", "", 2000, 270, 2120, 310, false, n[0]++));
+        els.add(new El("501", "", 1900, 380, 2036, 474, false, n[0]++));
+        els.add(new El("0", "", 2200, 440, 2236, 488, false, n[0]++));
+        els.add(new El("SAMUEL'S TURN TO THROW!", "", 2800, 250, 3176, 292, false, n[0]++));
+        els.add(new El("", "", 3663, 243, 3723, 302, true, n[0]++));
+        els.add(new El("", "", 2322, 344, 2393, 416, true, n[0]++));
+        els.add(new El("", "", 3048, 337, 3132, 424, true, n[0]++));
+        at.accept("Single", new int[]{2392, 524});
+        at.accept("Double", new int[]{788, 510});
+        at.accept("Treble", new int[]{974, 510});
+        at.accept("Bull 50", new int[]{1159, 510});
+        at.accept("Outer 25", new int[]{1344, 510});
+        int[] xs = {605, 788, 974, 1160, 1344}, ys = {648, 786, 923, 1059};
+        for (int i = 1; i <= 20; i++) at.accept(String.valueOf(i), new int[]{xs[(i - 1) % 5], ys[(i - 1) / 5]});
+        at.accept("", new int[]{698, 1196});
+        at.accept("MISS", new int[]{1067, 1196});
+        els.add(new El("...", "", 1600, 330, 1640, 354, false, n[0]++));
+        els.add(new El("#1", "", 1750, 320, 1798, 364, false, n[0]++));
+        at.accept("", new int[]{2048, 1230});
+
+        Keypad k = Keypad.find(els, 2112, 1320);
+        check(k != null, "[real tablet] keypad found");
+        if (k == null) return;
+        System.out.println(k);
+        double sc = 2112.0 / 2000;
+        near(k.single, (int) (570 * sc), (int) (484 * sc), 40, "Single (reported off screen) worked out from the grid");
+        near(k.treble, 974, 510, 5, "Treble");
+        near(k.numbers[1], 605, 648, 5, "1");
+        near(k.numbers[16], 605, 1059, 5, "16");
+        near(k.numbers[20], 1344, 1059, 5, "20");
+        near(k.miss, 1067, 1196, 5, "MISS");
+        near(k.undo, 698, 1196, 5, "undo (icon left of MISS)");
+        near(k.submit, (int) (1301 * sc), (int) (332 * sc), 30, "submit = green arrow (icons reported off screen)");
+    }
+
+    static void near(Keypad.Key key, int x, int y, int tol, String what) {
+        boolean ok = key != null && Math.hypot(key.x - x, key.y - y) <= tol;
+        check(ok, "[real tablet] " + what + ": " + key + " (want ~" + x + "," + y + ")");
     }
 
     public static void main(String[] args) {
         run(false);
         run(true);
-        check(Keypad.find(new ArrayList<>()) == null, "no keypad on an empty screen");
+        realTablet();
+        check(Keypad.find(new ArrayList<>(), 0, 0) == null, "no keypad on an empty screen");
         if (failures > 0) { System.out.println(failures + " KEYPAD FAILURES"); System.exit(1); }
         System.out.println("KEYPAD: all checks passed");
     }

@@ -30,7 +30,7 @@ public final class DartTyper {
 
     public interface Result { void done(String line); }
 
-    private static final long TAP_GAP_MS = 220;     // between two button presses
+    private static final long TAP_GAP_MS = 350;     // between two button presses
     private static final long SETTLE_MS = 450;      // before reading back what DartCounter shows
 
     private static final String[] SUBMIT = Keypad.SUBMIT;
@@ -130,10 +130,12 @@ public final class DartTyper {
         // DartCounter's keypad (tabs, numbers, MISS, icon buttons for undo/submit) first.
         List<AccessibilityNodeInfo> all = new ArrayList<>();
         collect(root, all, 0);
-        Keypad kp = Keypad.find(elements(all));
-        Keypad.El k = kp == null ? null : kp.target(labels);
+        Keypad kp = keypad(root, all);
+        Keypad.Key k = kp == null ? null : kp.target(labels);
         if (k != null) {
-            String how = click(svc, all.get(k.index));
+            // A real touch: DartCounter is a web app and ignores the accessibility "click".
+            String how = touch(svc, k.x, k.y);
+            if (!how.startsWith("ok") && k.el != null) how += "; " + click(svc, all.get(k.el.index));
             log("  " + labels[0] + ": keypad " + k + " → " + how);
             if (how.startsWith("ok")) return null;
         } else {
@@ -148,6 +150,25 @@ public final class DartTyper {
             if (how.startsWith("ok")) return null;
         }
         return labels[0];
+    }
+
+    private static Keypad keypad(AccessibilityNodeInfo root, List<AccessibilityNodeInfo> all) {
+        Rect screen = new Rect();
+        root.getBoundsInScreen(screen);
+        return Keypad.find(elements(all), screen.right, screen.bottom);
+    }
+
+    /** A real tap at (x, y), like a finger (needs canPerformGestures). */
+    private static String touch(AccessibilityService svc, int x, int y) {
+        Path p = new Path();
+        p.moveTo(x, y);
+        try {
+            boolean ok = svc.dispatchGesture(new GestureDescription.Builder()
+                    .addStroke(new GestureDescription.StrokeDescription(p, 0, 60)).build(), null, null);
+            return (ok ? "ok tap @" : "tap refused @") + x + "," + y;
+        } catch (Exception e) {
+            return "tap failed: " + e.getMessage();
+        }
     }
 
     /** Screen elements for Keypad (index = position in the node list). */
@@ -314,7 +335,7 @@ public final class DartTyper {
                     .append("  @").append(r.centerX()).append(',').append(r.centerY())
                     .append(' ').append(n.getClassName()).append('\n');
         }
-        Keypad kp = Keypad.find(elements(all));
+        Keypad kp = keypad(root, all);
         sb.append("\n--- keypad as Dart LED sees it ---\n").append(kp == null ? "no Single/Double/Treble row found" : kp.toString()).append('\n');
         return sb.toString();
     }
