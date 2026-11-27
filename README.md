@@ -34,6 +34,10 @@ Setup:
    **Confirm**, answers **DARTS USED ON A DOUBLE** (darts thrown while the score left was a double –
    2–40 even or 50) and confirms the dialog (`core/Prompts.java`, `PromptsTest`). Darts sent while such
    a banner/dialog is open are not entered.
+   **Only a full visit is submitted:** the green arrow is pressed only when DartCounter shows 3 darts
+   (a bust or a checkout end the visit through their own dialogs). With fewer, Dart LED tells the phone
+   how many are missing and submits by itself as soon as the 3rd dart is entered (MISS on the phone or
+   directly in DartCounter).
 3. Phone: install `DartCam.apk`, allow the camera, put phone and tablet on the same Wi-Fi.
    DartCam finds the tablet by itself (the address can be typed in as a fallback: tap the status line).
 4. Fix the phone so it can't move, pull the darts out of the board and tap **⚙** (calibration). Tap **Auto**: DartCam finds the board by itself (the first time it tries right away) and sets the zoom

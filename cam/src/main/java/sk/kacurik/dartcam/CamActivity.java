@@ -388,6 +388,7 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
     }
 
     private void updateHint() {
+        visitSize = visit.size();
         updateStatus();
         updateVisit();
         if (boardView.calibrating()) {
@@ -1146,7 +1147,7 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
         if (ev != null && ev.type == DartDetector.Type.TAKEOUT) {
             if (!visitSubmitted) check = doubleCheck(visitStill, visitStillRot, w, h);
             clearShots();
-        } else if (!visitSubmitted && !paused && detector.dartsInVisit() >= 3 && detector.idle()
+        } else if (!visitSubmitted && !paused && detector.dartsInVisit() >= 3 && visitSize >= 3 && detector.idle()
                 && System.currentTimeMillis() - lastDartMs > 1200 && visitStill != null) {
             check = doubleCheck(visitStill, visitStillRot, w, h);
             submitNow = true;
@@ -1178,6 +1179,7 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
     private int visitStillRot;
     private long lastDartMs;
     private volatile boolean visitSubmitted;
+    private volatile int visitSize;   // darts entered this visit (UI thread writes, analysis thread reads)
 
     private void clearShots() {
         for (int i = 0; i < 3; i++) shots[i] = null;
@@ -1446,6 +1448,9 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
             }
         } else if (line.startsWith("ERR")) {
             hintText.setText("Tablet: " + line.substring(3).trim());
+        } else if (line.startsWith("WARN SUBMIT")) {
+            zoomNote = "Tablet: " + line.substring(12).trim();
+            updateHint();
         }
     }
 

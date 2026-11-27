@@ -81,11 +81,34 @@ public final class DartTyper {
                 finish(cb, "OK SUBMIT (nothing entered)");
                 return;
             }
+            if (b.entered.size() < 3) {
+                // Only a full visit is submitted (a bust or a checkout ends it earlier through their
+                // own dialogs, handled above). Wait for the missing darts, then submit by itself.
+                pendingSubmit = true;
+                finish(cb, "WARN SUBMIT not pressed: DartCounter shows " + b.entered.size()
+                        + " of 3 darts – enter the missing ones (MISS on the phone or in DartCounter), then it is submitted by itself");
+                return;
+            }
+            pendingSubmit = false;
             String miss = tap(SUBMIT, false);
             if (miss != null) { finishLater(cb, "ERR no " + miss + " button"); return; }
             // A bust banner or a "darts used on a double" dialog may follow.
             handler.postDelayed(() -> answerPrompts(start, darts, 0, cb, "OK SUBMIT"), SETTLE_MS + 300);
         });
+    }
+
+    /** A submit came while fewer than 3 darts were entered: submit once the 3rd is in. */
+    private boolean pendingSubmit;
+
+    /** Main thread, after every reading of DartCounter's screen. */
+    public void onBoardChanged(Scoreboard b) {
+        if (!pendingSubmit) return;
+        if (b.entered.isEmpty()) { pendingSubmit = false; return; }   // submitted some other way
+        if (b.entered.size() >= 3 && !busy) {
+            pendingSubmit = false;
+            log("3 darts entered now – submitting the visit that was waiting");
+            submit(line -> { });
+        }
     }
 
     /** Screen elements and size right now, or null. */

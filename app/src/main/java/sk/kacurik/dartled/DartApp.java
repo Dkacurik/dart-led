@@ -146,6 +146,7 @@ public final class DartApp extends Application {
         if (idle) leaveIdle();
         show(sb);
         if (camServer != null) camServer.pushState(sb);
+        typer.onBoardChanged(sb);
     }
 
     /** The reader saw another app come to the front (home screen, browser...). */
