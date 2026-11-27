@@ -27,6 +27,8 @@ jobs:
           java -cp "$RUNNER_TEMP/sim" AutoCalTest
           java -cp "$RUNNER_TEMP/sim" RefineTest
           java -cp "$RUNNER_TEMP/sim" TrackerTest
+          javac -d "$RUNNER_TEMP/typersim" app/src/main/java/sk/kacurik/dartled/core/Keypad.java tools/typer-sim/*.java
+          java -cp "$RUNNER_TEMP/typersim" KeypadTest
       - name: Build
         run: ./gradlew :app:assembleDebug :cam:assembleDebug --no-daemon --stacktrace
       - name: Publish download

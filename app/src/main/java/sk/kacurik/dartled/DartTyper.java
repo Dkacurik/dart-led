@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
+import sk.kacurik.dartled.core.Keypad;
 import sk.kacurik.dartled.core.Scoreboard;
 
 /**
@@ -32,11 +33,8 @@ public final class DartTyper {
     private static final long TAP_GAP_MS = 220;     // between two button presses
     private static final long SETTLE_MS = 450;      // before reading back what DartCounter shows
 
-    private static final String[] MOD_SINGLE = {"SINGLE", "S"};
-    private static final String[] MOD_DOUBLE = {"DOUBLE", "D"};
-    private static final String[] MOD_TRIPLE = {"TRIPLE", "TREBLE", "T"};
-    private static final String[] SUBMIT = {"SUBMIT", "OK", "ENTER", "DONE", "CONFIRM", "NEXT"};
-    private static final String[] UNDO = {"UNDO", "DELETE", "BACKSPACE", "⌫", "CLEAR LAST"};
+    private static final String[] SUBMIT = Keypad.SUBMIT;
+    private static final String[] UNDO = Keypad.UNDO;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final ArrayDeque<Runnable> queue = new ArrayDeque<>();
@@ -81,42 +79,8 @@ public final class DartTyper {
 
     // ---------------------------------------------------------------- planning
 
-    /** Buttons to press for a dart, each step a list of accepted labels. null = unknown dart. */
-    static List<String[]> plan(String label) {
-        String l = label.trim().toUpperCase(Locale.ROOT);
-        List<String[]> s = new ArrayList<>();
-        switch (l) {
-            case "MISS": case "M": case "0": case "S0":
-                s.add(new String[]{"MISS", "0", "M", "NO SCORE"});
-                return s;
-            case "25": case "S25": case "OUTER":
-                s.add(opt(MOD_SINGLE));
-                s.add(new String[]{"25", "OUTER BULL", "OUTER", "S25", "SBULL"});
-                return s;
-            case "BULL": case "D25": case "50": case "DBULL":
-                s.add(new String[]{"BULL", "BULLSEYE", "50", "D25", "DBULL", "INNER BULL"});
-                return s;
-        }
-        if (l.length() < 2) return null;
-        char m = l.charAt(0);
-        int n;
-        try { n = Integer.parseInt(l.substring(1)); } catch (NumberFormatException e) { return null; }
-        if (n < 1 || n > 20) return null;
-        if (m == 'T') s.add(MOD_TRIPLE);
-        else if (m == 'D') s.add(MOD_DOUBLE);
-        else if (m == 'S') s.add(opt(MOD_SINGLE));
-        else return null;
-        s.add(new String[]{String.valueOf(n)});
-        return s;
-    }
-
-    /** Marks a step as optional: pressed if such a button exists, skipped otherwise. */
-    private static String[] opt(String[] labels) {
-        String[] o = new String[labels.length + 1];
-        o[0] = "?";
-        System.arraycopy(labels, 0, o, 1, labels.length);
-        return o;
-    }
+    /** Buttons to press for a dart, each step a list of accepted labels ("?" first = optional). */
+    static List<String[]> plan(String label) { return Keypad.plan(label); }
 
     // ---------------------------------------------------------------- execution
 
@@ -160,11 +124,35 @@ public final class DartTyper {
         DartReaderService svc = DartReaderService.instance;
         AccessibilityNodeInfo root = svc == null ? null : svc.dartCounterRoot();
         if (root == null) return labels[0];
+        // DartCounter's keypad (tabs, numbers, MISS, icon buttons for undo/submit) first.
+        List<AccessibilityNodeInfo> all = new ArrayList<>();
+        collect(root, all, 0);
+        Keypad kp = Keypad.find(elements(all));
+        Keypad.El k = kp == null ? null : kp.target(labels);
+        if (k != null && click(svc, all.get(k.index))) return null;
+        // Other layouts: any element with that text.
         for (String want : labels) {
             AccessibilityNodeInfo node = find(root, plain(want), descContains);
             if (node != null && click(svc, node)) return null;
         }
         return labels[0];
+    }
+
+    /** Screen elements for Keypad (index = position in the node list). */
+    private static List<Keypad.El> elements(List<AccessibilityNodeInfo> all) {
+        List<Keypad.El> els = new ArrayList<>();
+        Rect r = new Rect();
+        for (int i = 0; i < all.size(); i++) {
+            AccessibilityNodeInfo n = all.get(i);
+            n.getBoundsInScreen(r);
+            if (r.isEmpty()) continue;
+            CharSequence t = n.getText(), d = n.getContentDescription();
+            boolean pressable = n.isClickable() && n.isEnabled();
+            if ((t == null || t.length() == 0) && (d == null || d.length() == 0) && !pressable) continue;
+            els.add(new Keypad.El(t == null ? "" : t.toString(), d == null ? "" : d.toString(),
+                    r.left, r.top, r.right, r.bottom, pressable, i));
+        }
+        return els;
     }
 
     private static AccessibilityNodeInfo find(AccessibilityNodeInfo root, String want, boolean descContains) {
@@ -259,13 +247,21 @@ public final class DartTyper {
         Rect r = new Rect();
         for (AccessibilityNodeInfo n : all) {
             CharSequence t = n.getText(), d = n.getContentDescription();
-            if ((t == null || t.length() == 0) && (d == null || d.length() == 0)) continue;
+            boolean icon = (t == null || t.length() == 0) && (d == null || d.length() == 0);
+            if (icon && !(n.isClickable() && n.isEnabled())) continue;
             n.getBoundsInScreen(r);
+            if (icon) {
+                sb.append("[btn] (icon) ").append(n.getViewIdResourceName() == null ? "" : n.getViewIdResourceName())
+                        .append("  ").append(r.toShortString()).append(' ').append(n.getClassName()).append('\n');
+                continue;
+            }
             sb.append(clickTarget(n) != null ? "[btn] " : "      ")
                     .append(t == null ? "" : t).append(d == null ? "" : " {" + d + "}")
                     .append("  @").append(r.centerX()).append(',').append(r.centerY())
                     .append(' ').append(n.getClassName()).append('\n');
         }
+        Keypad kp = Keypad.find(elements(all));
+        sb.append("\n--- keypad as Dart LED sees it ---\n").append(kp == null ? "no Single/Double/Treble row found" : kp.toString()).append('\n');
         return sb.toString();
     }
 }

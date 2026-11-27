@@ -23,7 +23,11 @@ Pixel (DartCam: camera)  --Wi-Fi-->  tablet (Dart LED)  --taps-->  DartCounter  
 Setup:
 1. Tablet: install the new Dart LED, then in Android's accessibility settings switch Dart LED **off and on
    again** (it now also needs permission to press buttons). In Dart LED, section 5 shows the tablet's address.
-2. DartCounter: use **single-dart input** (SINGLE / DOUBLE / TRIPLE + numbers, then SUBMIT).
+2. DartCounter: use **single-dart input** (the keypad with the tabs **Single / Double / Treble / Bull 50 /
+   Outer 25**, numbers 1–20, undo arrow and **MISS**). Dart LED finds that keypad on the screen
+   (`app/.../core/Keypad.java`): T20 = Treble, 20; D16 = Double, 16; S5 = Single, 5; 25 = Outer 25;
+   bull = Bull 50; the visit is submitted with the green arrow in the input bar, UNDO presses the undo
+   arrow left of MISS (`tools/typer-sim/KeypadTest.java` checks this on that screen).
 3. Phone: install `DartCam.apk`, allow the camera, put phone and tablet on the same Wi-Fi.
    DartCam finds the tablet by itself (the address can be typed in as a fallback: tap the status line).
 4. Fix the phone so it can't move, pull the darts out of the board and tap **⚙** (calibration). Tap **Auto**: DartCam finds the board by itself (the first time it tries right away) and sets the zoom
@@ -71,8 +75,8 @@ real photo and draws the result. `tools/dartcam-sim/SimTest.java` tests the dart
 views (5 camera positions, noise, takeouts, an exposure jump): about 90% exact, tip error ~2 mm, and the
 misses are darts placed on purpose within ~2 mm of a wire.
 
-If darts are entered wrongly, use **Copy DartCounter buttons** in Dart LED during a match and adjust the
-button names in `DartTyper.java`.
+If darts are entered wrongly, use **Copy DartCounter buttons** in Dart LED during a match: it lists every
+element (icon buttons too) and, at the end, which keypad buttons Dart LED picked. Adjust `Keypad.java`.
 
 ## Install
 Every push to `main` builds the app on GitHub and publishes it at
