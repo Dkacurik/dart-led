@@ -52,7 +52,7 @@ public class KeypadTest {
 
     static final Map<String, Integer> idx = new HashMap<>();
 
-    static Screen build(boolean descOnly) {
+    static Screen build(boolean descOnly, int mult, boolean separate) {
         idx.clear();
         Screen s = new Screen(descOnly);
         // Top bar and player cards (numbers that must NOT be pressed).
@@ -88,7 +88,17 @@ public class KeypadTest {
         // Numbers 1..20.
         for (int n = 1; n <= 20; n++) {
             int c = (n - 1) % 5, r = (n - 1) / 5;
-            idx.put(String.valueOf(n), s.button(String.valueOf(n), 483 + 175 * c, 548 + 130 * r, 658 + 175 * c, 678 + 130 * r));
+            int l = 483 + 175 * c, t = 548 + 130 * r;
+            if (mult == 1) {
+                idx.put(String.valueOf(n), s.button(String.valueOf(n), l, t, l + 175, t + 130));
+            } else if (!separate) {
+                idx.put(String.valueOf(n), s.button(n + " " + n * mult, l, t, l + 175, t + 130));   // "20 40"
+            } else {
+                // Big number and small value as separate elements: a small "20" sits on D10.
+                s.add("", "", l, t, l + 175, t + 130, true);
+                idx.put(String.valueOf(n), s.add(String.valueOf(n), "", l + 60, t + 40, l + 100, t + 90, false));
+                s.add(String.valueOf(n * mult), "", l + 105, t + 55, l + 135, t + 80, false);
+            }
         }
         // Bottom row: undo icon, MISS, empty cell.
         idx.put("UNDO", s.icon(483, 1070, 833, 1198));
@@ -114,9 +124,12 @@ public class KeypadTest {
         return out;
     }
 
-    static void run(boolean descOnly) {
-        String style = descOnly ? "[description-only] " : "[text in cells] ";
-        Screen s = build(descOnly);
+    static void run(boolean descOnly) { run(descOnly, 1, false); }
+
+    static void run(boolean descOnly, int mult, boolean separate) {
+        String style = (descOnly ? "[description-only" : "[text in cells")
+                + (mult == 2 ? ", Double mode" : mult == 3 ? ", Treble mode" : "") + (separate ? ", value apart" : "") + "] ";
+        Screen s = build(descOnly, mult, separate);
         Keypad k = Keypad.find(s.els, 2000, 1250);
         check(k != null, style + "keypad found");
         if (k == null) return;
@@ -198,6 +211,10 @@ public class KeypadTest {
     public static void main(String[] args) {
         run(false);
         run(true);
+        run(false, 2, false);
+        run(true, 3, false);
+        run(false, 2, true);
+        run(false, 3, true);
         realTablet();
         check(Keypad.find(new ArrayList<>(), 0, 0) == null, "no keypad on an empty screen");
         if (failures > 0) { System.out.println(failures + " KEYPAD FAILURES"); System.exit(1); }

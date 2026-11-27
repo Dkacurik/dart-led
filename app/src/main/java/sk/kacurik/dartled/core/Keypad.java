@@ -147,35 +147,45 @@ public final class Keypad {
         k.single = tabs[0]; k.dbl = tabs[1]; k.treble = tabs[2]; k.bull = tabs[3]; k.outer = tabs[4];
         int left = colX[0] - k.colPitch / 2, right = colX[4] + k.colPitch / 2;
 
-        // Numbers and MISS below the tabs.
-        El[] num = new El[21];
+        // Numbers and MISS below the tabs. In Double/Treble mode the buttons read "20 40" / "20 60"
+        // (number and value, maybe as separate elements), so a "20" can sit on D10: the grid decides
+        // where a number is, the text only confirms it.
         El missEl = null;
-        for (El e : els) {
-            if (e.cx() < left || e.cx() > right || e.cy() <= tabY + tol / 2) continue;
-            String s = !e.text.isEmpty() ? e.text : e.desc;
-            if (s.matches("\\d{1,2}")) {
-                int n = Integer.parseInt(s);
-                if (n >= 1 && n <= 20) num[n] = better(num[n], e);
-            } else if (e.says("MISS")) {
-                missEl = better(missEl, e);
-            }
-        }
         double[] rowSum = new double[4];
         int[] rowCnt = new int[4];
-        for (int n = 1; n <= 20; n++) if (num[n] != null) { rowSum[(n - 1) / 5] += num[n].cy(); rowCnt[(n - 1) / 5]++; }
-        int r0 = -1, r1 = -1;
-        for (int r = 0; r < 4; r++) if (rowCnt[r] > 0) { if (r0 < 0) r0 = r; r1 = r; }
-        if (r0 < 0) return null;
-        double y0 = rowSum[r0] / rowCnt[r0];
-        k.rowPitch = r1 > r0 ? (int) Math.round((rowSum[r1] / rowCnt[r1] - y0) / (r1 - r0))
-                             : (int) Math.round((y0 - tabY) / (r0 + 1));
+        for (El e : els) {
+            if (e.cx() < left || e.cx() > right || e.cy() <= tabY + tol / 2) continue;
+            if (e.says("MISS")) { missEl = better(missEl, e); continue; }
+            int n = firstNumber(e);
+            if (n >= 1 && n <= 20 && nearestCol(colX, e.cx()) == (n - 1) % 5) {
+                rowSum[(n - 1) / 5] += e.cy(); rowCnt[(n - 1) / 5]++;
+            }
+        }
+        double[] rowY = new double[4];
+        double pitchY;
+        if (missEl != null && missEl.cy() > tabY) {
+            // 4 number rows evenly between the tab row and the MISS row.
+            pitchY = (missEl.cy() - tabY) / 5.0;
+            for (int r = 0; r < 4; r++) rowY[r] = tabY + (r + 1) * pitchY;
+        } else {
+            int r0 = -1, r1 = -1;
+            for (int r = 0; r < 4; r++) if (rowCnt[r] > 0) { if (r0 < 0) r0 = r; r1 = r; }
+            if (r0 < 0) return null;
+            double y0 = rowSum[r0] / rowCnt[r0];
+            pitchY = r1 > r0 ? (rowSum[r1] / rowCnt[r1] - y0) / (r1 - r0) : (y0 - tabY) / (r0 + 1);
+            for (int r = 0; r < 4; r++) rowY[r] = y0 + (r - r0) * pitchY;
+        }
+        k.rowPitch = (int) Math.round(pitchY);
         if (k.rowPitch < 20) return null;
         for (int n = 1; n <= 20; n++) {
-            int c = (n - 1) % 5, r = (n - 1) / 5;
-            int y = rowCnt[r] > 0 ? (int) Math.round(rowSum[r] / rowCnt[r]) : (int) Math.round(y0 + (r - r0) * k.rowPitch);
-            k.numbers[n] = num[n] != null ? new Key(num[n]) : new Key(colX[c], y);
+            int x = colX[(n - 1) % 5], y = (int) Math.round(rowY[(n - 1) / 5]);
+            El hit = null;                                   // the element labelled n in that cell, if any
+            for (El e : els)
+                if (firstNumber(e) == n && Math.abs(e.cx() - x) < k.colPitch / 2 && Math.abs(e.cy() - y) < pitchY / 2)
+                    hit = better(hit, e);
+            k.numbers[n] = hit != null ? new Key(hit) : new Key(x, y);
         }
-        int bottomY = (int) Math.round(y0 + (4 - r0) * k.rowPitch);
+        int bottomY = (int) Math.round(rowY[3] + pitchY);
         k.miss = missEl != null ? new Key(missEl) : new Key((colX[2] + colX[3]) / 2, bottomY);
 
         // Undo: described as such, else the icon left of MISS in its row, else the grid (under columns 1–2).
@@ -247,6 +257,19 @@ public final class Keypad {
             if (e != null) return e;
         }
         return null;
+    }
+
+    /** The number an element starts with ("20", "20 40", "20\n60" → 20), else -1. */
+    static int firstNumber(El e) {
+        String s = !e.text.isEmpty() ? e.text : e.desc;
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("^(\\d{1,2})(?: \\d{1,2})?$").matcher(s);
+        return m.matches() ? Integer.parseInt(m.group(1)) : -1;
+    }
+
+    private static int nearestCol(int[] colX, int x) {
+        int best = 0;
+        for (int c = 1; c < 5; c++) if (Math.abs(colX[c] - x) < Math.abs(colX[best] - x)) best = c;
+        return best;
     }
 
     private static El lowestWord(List<El> els, String w) {
