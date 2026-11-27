@@ -49,7 +49,10 @@ Setup:
    following"). The chip at the top shows **Board locked** / **Following…** / **Searching board: <reason>**.
    **Tap the camera picture** to focus there and to tell the tracker "the board is here" (handy if something
    else round or red/green is in view); once the board is locked, focus and exposure stay on the board.
-   Switch it off with **Track the board all the time** on the calibration screen (e.g. for a board Auto
+   While the board is locked and empty, DartCam also **zooms by itself** so the board with its number
+   ring fills the picture (up to 3×; more camera pixels per millimetre for the detection and the
+   close-up). Moving the zoom slider by hand switches this off until the next **Auto**.
+   Switch tracking off with **Track the board all the time** on the calibration screen (e.g. for a board Auto
    can't read).
 5. Play. Each dart is shown on the phone and entered in DartCounter; pulling the darts out submits the visit.
    After each dart a **close-up** of the dart appears (full camera resolution, with the wires drawn in) and

@@ -336,7 +336,8 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
             }
             @Override public void onStartTrackingTouch(SeekBar s) { }
             @Override public void onStopTrackingTouch(SeekBar s) {
-                prefs.edit().putInt("zoom", s.getProgress()).remove("zoomRatio").apply();
+                // Zoom set by hand: stop zooming by itself until the next Auto.
+                prefs.edit().putInt("zoom", s.getProgress()).remove("zoomRatio").putBoolean("autoZoom", false).apply();
             }
         });
         calBar.addView(zoomBar);
@@ -473,6 +474,7 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
         autoRunning = true;
         autoMsg = null;
         autoRound = 0;
+        prefs.edit().putBoolean("autoZoom", true).apply();
         autoZoomedOut = false;
         autoCalRequested = true;
         updateHint();
@@ -715,12 +717,44 @@ public final class CamActivity extends ComponentActivity implements TabletLink.L
             if (r.ok() && trackState == BoardTracker.State.LOCKED) {
                 trackHint = null; // the tap has done its job
                 if (!boardFocused) { boardFocused = true; runOnUiThread(this::focusOnBoard); }
+                maybeAutoZoom(r, w, h);
             }
             runOnUiThread(this::updateStatus);
         } catch (Exception ignored) {
         } finally {
             trackBusy.set(false);
         }
+    }
+
+    private static final float AUTO_ZOOM_MAX = 3.0f;   // digital zoom beyond this adds no detail on the main camera
+    private long lastAutoZoomMs;
+
+    /**
+     * Tracking thread, board locked: zoom so the board with its number ring fills the picture (more
+     * camera pixels per millimetre for the detector and the close-up). Only between visits (no darts
+     * in the board), at most every 6 s; the tracker then follows the bigger board by itself.
+     */
+    private void maybeAutoZoom(AutoCalibrator.Result r, int w, int h) {
+        if (!prefs.getBoolean("autoZoom", true) || camera == null || detector == null) return;
+        if (detector.dartsInVisit() > 0 || boardView.calibrating() || paused) return;
+        long now = System.currentTimeMillis();
+        if (now - lastAutoZoomMs < 6000) return;
+        ZoomState zs = zoomState();
+        if (zs == null) return;
+        double f = AutoCalibrator.zoomFactor(r.boardToImg, w, h, BOARD_VIEW_MM, BOARD_FILL);
+        float cur = zs.getZoomRatio();
+        float target = (float) Math.max(zs.getMinZoomRatio(), Math.min(Math.min(zs.getMaxZoomRatio(), AUTO_ZOOM_MAX), cur * f));
+        // Zoom in when it gains >12 %, out when the board's edge is cut off.
+        if (!(target > cur * 1.12f || (f < 0.95 && target < cur * 0.97f))) return;
+        lastAutoZoomMs = now;
+        runOnUiThread(() -> {
+            camera.getCameraControl().setZoomRatio(target);
+            prefs.edit().putFloat("zoomRatio", target).apply();
+            calNote = String.format(Locale.ROOT, "Zooming to the board (%.1f× → %.1f×)…", cur, target);
+            calNoteUntil = System.currentTimeMillis() + 2500;
+            hintText.postDelayed(this::updateHint, 2600);
+            updateHint();
+        });
     }
 
     /** UI thread: the board moved – recalibrate (resets the detector's pictures). */
